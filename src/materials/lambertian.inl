@@ -1,4 +1,4 @@
-__host__ __device__ Spectrum eval_op::operator()(const Lambertian &bsdf) const {
+__device__ inline Spectrum eval_op::operator()(const Lambertian &bsdf) const {
     if (dot(vertex.geometric_normal, dir_in) < 0 ||
             dot(vertex.geometric_normal, dir_out) < 0) {
         // No light below the surface
@@ -16,7 +16,7 @@ __host__ __device__ Spectrum eval_op::operator()(const Lambertian &bsdf) const {
            eval(bsdf.reflectance, vertex.uv, vertex.uv_screen_size, texture_pool) / c_PI;
 }
 
-__host__ __device__ Real pdf_sample_bsdf_op::operator()(const Lambertian &bsdf) const {
+__device__ inline Real pdf_sample_bsdf_op::operator()(const Lambertian &bsdf) const {
     if (dot(vertex.geometric_normal, dir_in) < 0 ||
             dot(vertex.geometric_normal, dir_out) < 0) {
         // No light below the surface
@@ -32,7 +32,7 @@ __host__ __device__ Real pdf_sample_bsdf_op::operator()(const Lambertian &bsdf) 
     return fmax(dot(frame.n, dir_out), Real(0)) / c_PI;
 }
 
-__host__ __device__ std::optional<BSDFSampleRecord> sample_bsdf_op::operator()(const Lambertian &bsdf) const {
+__device__ inline std::optional<BSDFSampleRecord> sample_bsdf_op::operator()(const Lambertian &bsdf) const {
     // For Lambertian, we importance sample the cosine hemisphere domain.
     if (dot(vertex.geometric_normal, dir_in) < 0) {
         // Incoming direction is below the surface.
@@ -49,6 +49,6 @@ __host__ __device__ std::optional<BSDFSampleRecord> sample_bsdf_op::operator()(c
         Real(0) /* eta */, Real(1) /* roughness */};
 }
 
-__host__ __device__ TextureSpectrum get_texture_op::operator()(const Lambertian &bsdf) const {
+__device__ inline TextureSpectrum get_texture_op::operator()(const Lambertian &bsdf) const {
     return bsdf.reflectance;
 }

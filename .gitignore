@@ -45,3 +45,8 @@ build/
 
 #vscode related
 .vscode
+
+#clangd related
+compile_commands.json
+.clangd
+.cache

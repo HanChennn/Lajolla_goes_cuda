@@ -1,5 +1,7 @@
-cmake_minimum_required(VERSION 3.18)
-project(lajolla LANGUAGES C CXX CUDA)
+cmake_minimum_required(VERSION 3.10)
+project(lajolla_gpu)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -23,7 +25,7 @@ endif()
 ########################################
 # CUDA Setup
 ########################################
-find_package(CUDA 12.8 REQUIRED)
+find_package(CUDA 10 REQUIRED)
 include(${CMAKE_MODULE_PATH}/CUDAComputesList.cmake)
 
 list(APPEND CUDA_NVCC_FLAGS ${CUDA_GENERATE_CODE} "--std=c++17" "--expt-relaxed-constexpr" "--use_fast_math")
@@ -36,7 +38,9 @@ if(WIN32)
 endif(WIN32)
 ########################################
 
-set(SRCS
+include_directories(${CMAKE_SOURCE_DIR}/src)
+
+set(SRC
     src/3rdparty/miniz.h
     src/3rdparty/miniz.c
     src/3rdparty/pugiconfig.hpp
@@ -63,25 +67,27 @@ set(SRCS
     src/materials/disney_sheen.inl
     src/materials/disney_bsdf.inl
 
-    src/media/homogeneous.inl
-    src/media/heterogeneous.inl
-
     src/parsers/load_serialized.h
     src/parsers/parse_obj.h
     src/parsers/parse_ply.h
     src/parsers/parse_scene.h
+    src/parsers/parsed_light.h
+    src/parsers/parsed_shape.h
+    src/parsers/parsed_table_dist.h
+    src/parsers/parsed_texture.h
     src/parsers/load_serialized.cpp
     src/parsers/parse_obj.cpp
     src/parsers/parse_ply.cpp
+    src/parsers/parsed_light.cpp
     src/parsers/parse_scene.cpp
 
-    src/phase_functions/isotropic.inl
-    src/phase_functions/henyeygreenstein.inl
 
     src/shapes/sphere.inl
     src/shapes/triangle_mesh.inl
 
     src/camera.h
+    src/cuda_utils.h
+    src/cuda_log.h
     src/filter.h
     src/flexception.h
     src/frame.h
@@ -91,13 +97,9 @@ set(SRCS
     src/light.h
     src/material.h
     src/matrix.h
-    src/medium.h
     src/microfacet.h
     src/mipmap.h
-    src/parallel.h
     src/path_tracing.h
-    src/phase_function.h
-    src/volume.h
     src/point_and_normal.h
     src/ray.h
     src/render.h
@@ -110,30 +112,15 @@ set(SRCS
     src/vector.h
 
     src/camera.cpp
-    src/filter.cpp
     src/image.cpp
-    src/intersection.cpp
-    src/material.cpp
-    src/medium.cpp
-    src/parallel.cpp
-    src/phase_function.cpp
-    src/render.cpp
     src/scene.cpp
-    src/shape.cpp
-    src/table_dist.cpp
-    src/transform.cpp
-    src/volume.cpp
+    src/main.cpp
 
-    # CUDA相关文件
     src/render.cu
-    src/render_cu.h
-    src/bvh.cpp
-    src/bvh.h
-    src/AABB.h
 )
 
-list(SORT SRCS)
-source_group(Sources FILES ${SRCS})
-cuda_add_executable(${CMAKE_PROJECT_NAME} ${SRCS})
+list(SORT SRC)
+source_group(Sources FILES ${SRC})
+cuda_add_executable(${CMAKE_PROJECT_NAME} ${SRC})
 
-target_link_libraries(${CMAKE_PROJECT_NAME}  ${CUDA_CUDART_LIBRARY} ${CUDA_LIBRARIES})
+target_link_libraries(${CMAKE_PROJECT_NAME} ${CUDA_CUDART_LIBRARY} ${CUDA_LIBRARIES})

@@ -1,6 +1,6 @@
 #include "../microfacet.h"
 
-__host__ __device__ Spectrum eval_op::operator()(const RoughPlastic &bsdf) const {
+__device__ inline Spectrum eval_op::operator()(const RoughPlastic &bsdf) const {
     if (dot(vertex.geometric_normal, dir_in) < 0 ||
             dot(vertex.geometric_normal, dir_out) < 0) {
         // No light below the surface
@@ -62,7 +62,7 @@ __host__ __device__ Spectrum eval_op::operator()(const RoughPlastic &bsdf) const
     return (spec_contrib + diffuse_contrib) * n_dot_out;
 }
 
-__host__ __device__ Real pdf_sample_bsdf_op::operator()(const RoughPlastic &bsdf) const {
+__device__ inline Real pdf_sample_bsdf_op::operator()(const RoughPlastic &bsdf) const {
     if (dot(vertex.geometric_normal, dir_in) < 0 ||
             dot(vertex.geometric_normal, dir_out) < 0) {
         // No light below the surface
@@ -109,7 +109,7 @@ __host__ __device__ Real pdf_sample_bsdf_op::operator()(const RoughPlastic &bsdf
     return spec_prob + diff_prob;
 }
 
-__host__ __device__ std::optional<BSDFSampleRecord>
+__device__ inline std::optional<BSDFSampleRecord>
         sample_bsdf_op::operator()(const RoughPlastic &bsdf) const {
     if (dot(vertex.geometric_normal, dir_in) < 0) {
         // No light below the surface
@@ -160,6 +160,6 @@ __host__ __device__ std::optional<BSDFSampleRecord>
     }
 }
 
-__host__ __device__ TextureSpectrum get_texture_op::operator()(const RoughPlastic &bsdf) const {
+__device__ inline TextureSpectrum get_texture_op::operator()(const RoughPlastic &bsdf) const {
     return bsdf.diffuse_reflectance;
 }

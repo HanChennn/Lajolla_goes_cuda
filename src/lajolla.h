@@ -11,8 +11,7 @@
 #include <iostream>
 #include <limits>
 #include <algorithm>
-#include <cuda_runtime.h>
-#include <cuda.h>
+#include "cuda_utils.h"
 
 // We use double for most of our computation.
 // Rendering is usually done in single precision Reals.
@@ -24,36 +23,17 @@
 // just set Real = float.
 using Real = double;
 
-// // Lots of PIs!
-// #ifdef __CUDA_ARCH__
-//     // GPU 代码：使用 `__device__`
-//     __device__ constexpr Real c_PI = Real(3.14159265358979323846);
-//     __device__ constexpr Real c_INVPI = Real(1.0) / c_PI;
-//     __device__ constexpr Real c_TWOPI = Real(2.0) * c_PI;
-//     __device__ constexpr Real c_INVTWOPI = Real(1.0) / c_TWOPI;
-//     __device__ constexpr Real c_FOURPI = Real(4.0) * c_PI;
-//     __device__ constexpr Real c_INVFOURPI = Real(1.0) / c_FOURPI;
-//     __device__ constexpr Real c_PIOVERTWO = Real(0.5) * c_PI;
-//     __device__ constexpr Real c_PIOVERFOUR = Real(0.25) * c_PI;
-// #else
-//     // CPU 代码：使用普通 `constexpr`
-//     constexpr Real c_PI = Real(3.14159265358979323846);
-//     constexpr Real c_INVPI = Real(1.0) / c_PI;
-//     constexpr Real c_TWOPI = Real(2.0) * c_PI;
-//     constexpr Real c_INVTWOPI = Real(1.0) / c_TWOPI;
-//     constexpr Real c_FOURPI = Real(4.0) * c_PI;
-//     constexpr Real c_INVFOURPI = Real(1.0) / c_FOURPI;
-//     constexpr Real c_PIOVERTWO = Real(0.5) * c_PI;
-//     constexpr Real c_PIOVERFOUR = Real(0.25) * c_PI;
-// #endif
-#define c_PI  Real(3.14159265358979323846)
-#define c_INVPI  Real(1.0) / c_PI
-#define c_TWOPI  Real(2.0) * c_PI
-#define c_INVTWOPI  Real(1.0) / c_TWOPI
-#define c_FOURPI  Real(4.0) * c_PI
-#define c_INVFOURPI  Real(1.0) / c_FOURPI
-#define c_PIOVERTWO  Real(0.5) * c_PI
-#define c_PIOVERFOUR  Real(0.25) * c_PI
+// Lots of PIs!
+#define c_PI            (Real(3.14159265358979323846)   )
+#define c_INVPI         (Real(1.0) / c_PI               )
+#define c_TWOPI         (Real(2.0) * c_PI               )
+#define c_INVTWOPI      (Real(1.0) / c_TWOPI            )
+#define c_FOURPI        (Real(4.0) * c_PI               )
+#define c_INVFOURPI     (Real(1.0) / c_FOURPI           )
+#define c_PIOVERTWO     (Real(0.5) * c_PI               )
+#define c_PIOVERFOUR    (Real(0.25) * c_PI              )
+#define c_EPSILON       (Real(1e-8)                     )
+
 
 template <typename T>
 __host__ __device__ inline T infinity() {
@@ -62,7 +42,7 @@ __host__ __device__ inline T infinity() {
 
 namespace fs = std::filesystem;
 
-inline std::string to_lowercase(const std::string &s) {
+__host__ inline std::string to_lowercase(const std::string &s) {
     std::string out = s;
     std::transform(s.begin(), s.end(), out.begin(), ::tolower);
     return out;

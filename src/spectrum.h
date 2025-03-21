@@ -45,7 +45,7 @@ __host__ __device__ inline Vector3 toRGB(const Spectrum &s) {
 /// RGB. To do this, we first convert the spectral data to CIE XYZ, by
 /// integrating over the XYZ response curve. Here we use an analytical response
 /// curve proposed by Wyman et al.: https://jcgt.org/published/0002/02/01/
-__host__ __device__ inline Real xFit_1931(Real wavelength) {
+__host__ inline Real xFit_1931(Real wavelength) {
     Real t1 = (wavelength - Real(442.0)) * ((wavelength < Real(442.0)) ? Real(0.0624) : Real(0.0374));
     Real t2 = (wavelength - Real(599.8)) * ((wavelength < Real(599.8)) ? Real(0.0264) : Real(0.0323));
     Real t3 = (wavelength - Real(501.1)) * ((wavelength < Real(501.1)) ? Real(0.0490) : Real(0.0382));
@@ -53,23 +53,23 @@ __host__ __device__ inline Real xFit_1931(Real wavelength) {
            Real(1.056) * exp(-Real(0.5) * t2 * t2) -
            Real(0.065) * exp(-Real(0.5) * t3 * t3);
 }
-__host__ __device__ inline Real yFit_1931(Real wavelength) {
+__host__ inline Real yFit_1931(Real wavelength) {
     Real t1 = (wavelength - Real(568.8)) * ((wavelength < Real(568.8)) ? Real(0.0213) : Real(0.0247));
     Real t2 = (wavelength - Real(530.9)) * ((wavelength < Real(530.9)) ? Real(0.0613) : Real(0.0322));
     return Real(0.821) * exp(-Real(0.5) * t1 * t1) +
            Real(0.286) * exp(-Real(0.5) * t2 * t2);
 }
-__host__ __device__ inline Real zFit_1931(Real wavelength) {
+__host__ inline Real zFit_1931(Real wavelength) {
     Real t1 = (wavelength - Real(437.0)) * ((wavelength < Real(437.0)) ? Real(0.0845) : Real(0.0278));
     Real t2 = (wavelength - Real(459.0)) * ((wavelength < Real(459.0)) ? Real(0.0385) : Real(0.0725));
     return Real(1.217) * exp(-Real(0.5) * t1 * t1) +
            Real(0.681) * exp(-Real(0.5) * t2 * t2);
 }
-__host__ __device__ inline Vector3 XYZintegral_coeff(Real wavelength) {
+__host__ inline Vector3 XYZintegral_coeff(Real wavelength) {
     return Vector3{xFit_1931(wavelength), yFit_1931(wavelength), zFit_1931(wavelength)};
 }
 
-inline Vector3 integrate_XYZ(const std::vector<std::pair<Real, Real>> &data) {
+__host__ inline Vector3 integrate_XYZ(const std::vector<std::pair<Real, Real>> &data) {
     static const Real CIE_Y_integral = 106.856895;
     static const Real wavelength_beg = 400;
     static const Real wavelength_end = 700;
@@ -110,14 +110,14 @@ inline Vector3 integrate_XYZ(const std::vector<std::pair<Real, Real>> &data) {
     return ret;
 }
 
-__host__ __device__ inline Vector3 XYZ_to_RGB(const Vector3 &xyz) {
+__host__ inline Vector3 XYZ_to_RGB(const Vector3 &xyz) {
     return Vector3{
         Real( 3.240479) * xyz[0] - Real(1.537150) * xyz[1] - Real(0.498535) * xyz[2],
         Real(-0.969256) * xyz[0] + Real(1.875991) * xyz[1] + Real(0.041556) * xyz[2],
         Real( 0.055648) * xyz[0] - Real(0.204043) * xyz[1] + Real(1.057311) * xyz[2]};
 }
 
-__host__ __device__ inline Vector3 sRGB_to_RGB(const Vector3 &srgb) {
+__host__ inline Vector3 sRGB_to_RGB(const Vector3 &srgb) {
     // https://en.wikipedia.org/wiki/SRGB#From_sRGB_to_CIE_XYZ
     Vector3 rgb = srgb;
     for (int i = 0; i < 3; i++) {

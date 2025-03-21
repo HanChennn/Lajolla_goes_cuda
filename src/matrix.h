@@ -5,7 +5,7 @@
 /// Row-major matrix
 template <typename T>
 struct TMatrix4x4 {
-    __host__ __device__ TMatrix4x4() {
+    __host__ __device__ inline TMatrix4x4() {
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
                 data[i][j] = T(0);
@@ -14,7 +14,7 @@ struct TMatrix4x4 {
     }
 
     template <typename T2>
-    __host__ __device__ TMatrix4x4(const T2 *arr) {
+    __host__ __device__ inline TMatrix4x4(const T2 *arr) {
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
                 data[i][j] = (T)arr[i * 4 + j];
@@ -23,7 +23,7 @@ struct TMatrix4x4 {
     }
 
     template <typename T2>
-    __host__ __device__ TMatrix4x4(const TMatrix4x4<T2> &m) {
+    __host__ __device__ inline TMatrix4x4(const TMatrix4x4<T2> &m) {
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
                 data[i][j] = T(m.data[i][j]);
@@ -32,7 +32,7 @@ struct TMatrix4x4 {
     }
 
     template <typename T2>
-    __host__ __device__ TMatrix4x4(T2 v00, T2 v01, T2 v02, T2 v03,
+    __host__ __device__ inline TMatrix4x4(T2 v00, T2 v01, T2 v02, T2 v03,
                T2 v10, T2 v11, T2 v12, T2 v13,
                T2 v20, T2 v21, T2 v22, T2 v23,
                T2 v30, T2 v31, T2 v32, T2 v33) {
@@ -54,15 +54,15 @@ struct TMatrix4x4 {
         data[3][3] = (T)v33;
     }
 
-    __host__ __device__ const T& operator()(int i, int j) const {
+    __host__ __device__ inline const T& operator()(int i, int j) const {
         return data[i][j];
     }
 
-    __host__ __device__ T& operator()(int i, int j) {
+    __host__ __device__ inline T& operator()(int i, int j) {
         return data[i][j];
     }
 
-    __host__ __device__ static TMatrix4x4<T> identity() {
+    __host__ __device__ inline static TMatrix4x4<T> identity() {
         TMatrix4x4<T> m(1, 0, 0, 0,
                         0, 1, 0, 0,
                         0, 0, 1, 0,
@@ -77,7 +77,7 @@ using Matrix4x4 = TMatrix4x4<Real>;
 using Matrix4x4f = TMatrix4x4<float>;
 
 template <typename T>
-__host__ __device__ TMatrix4x4<T> inverse(const TMatrix4x4<T> &m) {
+__host__ __device__ inline TMatrix4x4<T> inverse(const TMatrix4x4<T> &m) {
     // https://stackoverflow.com/questions/1148309/inverting-a-4x4-matrix
     TMatrix4x4<T> inv;
 
@@ -228,7 +228,7 @@ __host__ __device__ inline TMatrix4x4<T> operator*(const TMatrix4x4<T> &m0, cons
 }
 
 template <typename T>
-inline std::ostream& operator<<(std::ostream &os, const TMatrix4x4<T> &m) {
+__host__ inline std::ostream& operator<<(std::ostream &os, const TMatrix4x4<T> &m) {
     return os << "[[" << m(0, 0) << ", " << m(0, 1) << ", " << m(0, 2) << ", " << m(0, 3) << "]," << std::endl <<
                   "[" << m(1, 0) << ", " << m(1, 1) << ", " << m(1, 2) << ", " << m(1, 3) << "]," << std::endl <<
                   "[" << m(2, 0) << ", " << m(2, 1) << ", " << m(2, 2) << ", " << m(2, 3) << "]," << std::endl <<

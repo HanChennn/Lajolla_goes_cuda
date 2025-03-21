@@ -1,7 +1,7 @@
 #pragma once
 
 #include "lajolla.h"
-#include "spectrum.h"
+#include "frame.h"
 
 /// A microfacet model assumes that the surface is composed of infinitely many little mirrors/glasses.
 /// The orientation of the mirrors determines the amount of lights reflected.
@@ -21,7 +21,7 @@
 /// for a really nice introduction.
 /// https://seblagarde.wordpress.com/2013/04/29/memo-on-fresnel-equations/
 template <typename T>
-__host__ __device__ inline T schlick_fresnel(const T &F0, Real cos_theta) {
+__device__ inline T schlick_fresnel(const T &F0, Real cos_theta) {
     return F0 + (Real(1) - F0) *
         pow(max(1 - cos_theta, Real(0)), Real(5));
 }
@@ -31,8 +31,7 @@ __host__ __device__ inline T schlick_fresnel(const T &F0, Real cos_theta) {
 /// n_dot_i: abs(cos(incident angle))
 /// n_dot_t: abs(cos(transmission angle))
 /// eta: eta_transmission / eta_incident
-__host__ __device__ inline Real fresnel_dielectric(Real n_dot_i, Real n_dot_t, Real eta) {
-    // std::cerr<<n_dot_i<<' '<<n_dot_t<<std::endl;
+__device__ inline Real fresnel_dielectric(Real n_dot_i, Real n_dot_t, Real eta) {
     assert(n_dot_i >= 0 && n_dot_t >= 0 && eta > 0);
     Real rs = (n_dot_i - eta * n_dot_t) / (n_dot_i + eta * n_dot_t);
     Real rp = (eta * n_dot_i - n_dot_t) / (eta * n_dot_i + n_dot_t);
@@ -45,7 +44,7 @@ __host__ __device__ inline Real fresnel_dielectric(Real n_dot_i, Real n_dot_t, R
 /// The transmission angle is derived from 
 /// n_dot_i: cos(incident angle) (can be negative)
 /// eta: eta_transmission / eta_incident
-__host__ __device__ inline Real fresnel_dielectric(Real n_dot_i, Real eta) {
+__device__ inline Real fresnel_dielectric(Real n_dot_i, Real eta) {
     assert(eta > 0);
     Real n_dot_t_sq = 1 - (1 - n_dot_i * n_dot_i) / (eta * eta);
     if (n_dot_t_sq < 0) {
@@ -56,14 +55,14 @@ __host__ __device__ inline Real fresnel_dielectric(Real n_dot_i, Real eta) {
     return fresnel_dielectric(fabs(n_dot_i), n_dot_t, eta);
 }
 
-__host__ __device__ inline Real GTR2(Real n_dot_h, Real roughness) {
+__device__ inline Real GTR2(Real n_dot_h, Real roughness) {
     Real alpha = roughness * roughness;
     Real a2 = alpha * alpha;
     Real t = 1 + (a2 - 1) * n_dot_h * n_dot_h;
     return a2 / (c_PI * t*t);
 }
 
-__host__ __device__ inline Real GGX(Real n_dot_h, Real roughness) {
+__device__ inline Real GGX(Real n_dot_h, Real roughness) {
     return GTR2(n_dot_h, roughness);
 }
 
@@ -73,7 +72,7 @@ __host__ __device__ inline Real GGX(Real n_dot_h, Real roughness) {
 /// https://jcgt.org/published/0003/02/03/paper.pdf
 /// The derivation is based on Smith's paper "Geometrical shadowing of a random rough surface".
 /// Note that different microfacet distributions have different masking terms.
-__host__ __device__ inline Real smith_masking_gtr2(const Vector3 &v_local, Real roughness) {
+__device__ inline Real smith_masking_gtr2(const Vector3 &v_local, Real roughness) {
     Real alpha = roughness * roughness;
     Real a2 = alpha * alpha;
     Vector3 v2 = v_local * v_local;
@@ -83,16 +82,17 @@ __host__ __device__ inline Real smith_masking_gtr2(const Vector3 &v_local, Real 
 
 /// See "Sampling the GGX Distribution of Visible Normals", Heitz, 2018.
 /// https://jcgt.org/published/0007/04/01/
-__host__ __device__ inline Vector3 sample_visible_normals(const Vector3 &local_dir_in, Real alpha, const Vector2 &rnd_param) {
+__device__ inline Vector3 sample_visible_normals(const Vector3 &local_dir_in, Real alpha, const Vector2 &rnd_param) {
     // The incoming direction is in the "ellipsodial configuration" in Heitz's paper
+    Vector3 dir_in = local_dir_in;
     if (local_dir_in.z < 0) {
         // Ensure the input is on top of the surface.
-        return -sample_visible_normals(-local_dir_in, alpha, rnd_param);
+        dir_in = -dir_in;
     }
 
     // Transform the incoming direction to the "hemisphere configuration".
     Vector3 hemi_dir_in = normalize(
-        Vector3{alpha * local_dir_in.x, alpha * local_dir_in.y, local_dir_in.z});
+        Vector3{alpha * dir_in.x, alpha * dir_in.y, dir_in.z});
 
     // Parameterization of the projected area of a hemisphere.
     // First, sample a disk.
@@ -111,60 +111,6 @@ __host__ __device__ inline Vector3 sample_visible_normals(const Vector3 &local_d
     Vector3 hemi_N = to_world(hemi_frame, disk_N);
 
     // Transforming the normal back to the ellipsoid configuration
-    return normalize(Vector3{alpha * hemi_N.x, alpha * hemi_N.y, max(Real(0), hemi_N.z)});
-}
-
-__host__ __device__ inline Vector3 sample_visible_normals_anisotropic(const Vector3 &local_dir_in, Real alpha_x, Real alpha_y, const Vector2 &rnd_param) {
-    // The incoming direction is in the "ellipsodial configuration" in Heitz's paper
-    if (local_dir_in.z < 0) {
-        // Ensure the input is on top of the surface.
-        return -sample_visible_normals_anisotropic(-local_dir_in, alpha_x, alpha_y, rnd_param);
-    }
-
-    //////////////////// -------------- from paper ------------------ /////////////////////////
-    // Vector3 Vh = normalize(Vector3(alpha_x*local_dir_in.x, alpha_y*local_dir_in.y, local_dir_in.z));
-    // Real lensq = Vh.x * Vh.x + Vh.y * Vh.y;
-    // Vector3 T1 = lensq>0? 1.0/sqrt(lensq) * Vector3(-Vh.y, Vh.x, 0.0) : Vector3(1.0, 0.0, 0.0);
-    // Vector3 T2 = cross(Vh, T1);
-
-    // // Parameterization of the projected area of a hemisphere.
-    // // First, sample a disk.
-    // Real r = sqrt(rnd_param.x);
-    // Real phi = 2.0 * c_PI * rnd_param.y;
-    // Real t1 = r * cos(phi);
-    // Real t2 = r * sin(phi);
-    // // Vertically scale the position of a sample to account for the projection.
-    // Real s = (1.0 + Vh.z) * 0.5;
-    // t2 = (1.0 - s) * sqrt(1.0 - t1 * t1) + s * t2;
-    // // Point in the disk space
-    // Vector3 Nh = t1*T1 + t2*T2 + sqrt(max(0.0, 1.0-t1*t1-t2*t2))* Vh;
-
-    // ///  one
-    // Vector3 Ne = normalize(Vector3(alpha_x*Nh.x, alpha_y*Nh.y, max(0.0, Nh.z)));
-
-    // return Ne;
-
-
-    //////////////////// -------------- from previous ------------------ /////////////////////////
-    Vector3 hemi_dir_in = normalize(
-        Vector3{alpha_x * local_dir_in.x, alpha_y * local_dir_in.y, local_dir_in.z});
-
-    // Parameterization of the projected area of a hemisphere.
-    // First, sample a disk.
-    Real r = sqrt(rnd_param.x);
-    Real phi = 2 * c_PI * rnd_param.y;
-    Real t1 = r * cos(phi);
-    Real t2 = r * sin(phi);
-    // Vertically scale the position of a sample to account for the projection.
-    Real s = (1 + hemi_dir_in.z) / 2;
-    t2 = (1 - s) * sqrt(1 - t1 * t1) + s * t2;
-    // Point in the disk space
-    Vector3 disk_N{t1, t2, sqrt(max(Real(0), 1 - t1*t1 - t2*t2))};
-
-    // Reprojection onto hemisphere -- we get our sampled normal in hemisphere space.
-    Frame hemi_frame(hemi_dir_in);
-    Vector3 hemi_N = to_world(hemi_frame, disk_N);
-
-    // Transforming the normal back to the ellipsoid configuration
-    return normalize(Vector3{alpha_x * hemi_N.x, alpha_y * hemi_N.y, max(Real(0), hemi_N.z)});
+    Vector3 res = normalize(Vector3{alpha * hemi_N.x, alpha * hemi_N.y, max(Real(0), hemi_N.z)});
+    return (local_dir_in.z < 0) ? -res : res;
 }

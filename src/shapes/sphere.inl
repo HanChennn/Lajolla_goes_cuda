@@ -1,18 +1,7 @@
-// void sphere_bounds_func(const struct RTCBoundsFunctionArguments* args) {
-//     const Sphere *sphere = (const Sphere*) args->geometryUserPtr;
-//     RTCBounds* bounds_o = args->bounds_o;
-//     bounds_o->lower_x = sphere->position.x - sphere->radius;
-//     bounds_o->lower_y = sphere->position.y - sphere->radius;
-//     bounds_o->lower_z = sphere->position.z - sphere->radius;
-//     bounds_o->upper_x = sphere->position.x + sphere->radius;
-//     bounds_o->upper_y = sphere->position.y + sphere->radius;
-//     bounds_o->upper_z = sphere->position.z + sphere->radius;
-// }
-
 /// Numerically stable quadratic equation solver at^2 + bt + c = 0
 /// See https://people.csail.mit.edu/bkph/articles/Quadratics.pdf
 /// returns false when it can't find solutions.
-__host__ __device__ bool solve_quadratic(Real a, Real b, Real c, Real *t0, Real *t1) {
+__device__ inline bool solve_quadratic(Real a, Real b, Real c, Real *t0, Real *t1) {
     // Degenerated case
     if (a == 0) {
         if (b == 0) {
@@ -37,118 +26,7 @@ __host__ __device__ bool solve_quadratic(Real a, Real b, Real c, Real *t0, Real 
     return true;
 }
 
-// void sphere_intersect_func(const RTCIntersectFunctionNArguments* args) {
-//     assert(args->N == 1);
-//     int *valid = args->valid;
-//     if (!valid[0]) {
-//         return;
-//     }
-//     void *ptr = args->geometryUserPtr;
-//     const Sphere *sphere = (const Sphere*)ptr;
-//     RTCRayHitN *rayhit = args->rayhit;
-//     RTCRay *rtc_ray = (RTCRay*)RTCRayHitN_RayN(rayhit, 1);
-//     RTCHit *rtc_hit = (RTCHit*)RTCRayHitN_HitN(rayhit, 1);
-
-//     Ray ray{Vector3{rtc_ray->org_x, rtc_ray->org_y, rtc_ray->org_z},
-//             Vector3{rtc_ray->dir_x, rtc_ray->dir_y, rtc_ray->dir_z},
-//             rtc_ray->tnear, rtc_ray->tfar};
-//     // Our sphere is ||p - x||^2 = r^2
-//     // substitute x = o + d * t, we want to solve for t
-//     // ||p - (o + d * t)||^2 = r^2
-//     // (p.x - (o.x + d.x * t))^2 + (p.y - (o.y + d.y * t))^2 + (p.z - (o.z + d.z * t))^2 - r^2 = 0
-//     // (d.x^2 + d.y^2 + d.z^2) t^2 + 2 * (d.x * (o.x - p.x) + d.y * (o.y - p.y) + d.z * (o.z - p.z)) t + 
-//     // ((p.x-o.x)^2 + (p.y-o.y)^2 + (p.z-o.z)^2  - r^2) = 0
-//     // A t^2 + B t + C
-//     Vector3 v = ray.org - sphere->position;
-//     Real A = dot(ray.dir, ray.dir);
-//     Real B = 2 * dot(ray.dir, v);
-//     Real C = dot(v, v) - sphere->radius * sphere->radius;
-//     Real t0, t1;
-//     if (!solve_quadratic(A, B, C, &t0, &t1)) {
-//         // No intersection
-//         return;
-//     }
-//     // This can happen due to numerical inaccuracies
-//     if (t0 > t1) {
-//         std::swap(t0, t1);
-//     }
-
-
-//     Real t = -1;
-//     if (t0 >= ray.tnear && t0 < ray.tfar) {
-//         t = t0;
-//     }
-//     if (t1 >= ray.tnear && t1 < ray.tfar && t < 0) {
-//         t = t1;
-//     }
-
-//     if (t >= ray.tnear && t < ray.tfar) {
-//         // Record the intersection
-//         Vector3 p = ray.org + t * ray.dir;
-//         Vector3 geometric_normal = p - sphere->position;
-//         // rtc_hit->Ng doesn't need to be normalized
-//         rtc_hit->Ng_x = geometric_normal.x;
-//         rtc_hit->Ng_y = geometric_normal.y;
-//         rtc_hit->Ng_z = geometric_normal.z;
-//         // We use the spherical coordinates as uv
-//         Vector3 cartesian = geometric_normal / sphere->radius;
-//         // https://en.wikipedia.org/wiki/Spherical_coordinate_system#Cartesian_coordinates
-//         // We use the convention that y is up axis.
-//         Real elevation = acos(std::clamp(cartesian.y, Real(-1), Real(1)));
-//         Real azimuth = atan2(cartesian.z, cartesian.x);
-//         rtc_hit->u = azimuth / c_TWOPI;
-//         rtc_hit->v = elevation / c_PI;
-//         rtc_hit->primID = args->primID;
-//         rtc_hit->geomID = args->geomID;
-//         rtc_hit->instID[0] = args->context->instID[0];
-//         rtc_ray->tfar = t;
-//     }
-// }
-
-// void sphere_occluded_func(const RTCOccludedFunctionNArguments* args) {
-//     assert(args->N == 1);
-//     int *valid = args->valid;
-//     if (!valid[0]) {
-//         return;
-//     }
-
-//     void *ptr = args->geometryUserPtr;
-//     const Sphere *sphere = (const Sphere*)ptr;
-//     RTCRay *rtc_ray = (RTCRay *)args->ray;
-    
-//     Ray ray{Vector3{rtc_ray->org_x, rtc_ray->org_y, rtc_ray->org_z},
-//             Vector3{rtc_ray->dir_x, rtc_ray->dir_y, rtc_ray->dir_z},
-//             rtc_ray->tnear, rtc_ray->tfar};
-
-//     // See sphere_intersect_func for explanation.
-//     Vector3 v = ray.org - sphere->position;
-//     Real A = dot(ray.dir, ray.dir);
-//     Real B = 2 * dot(ray.dir, v);
-//     Real C = dot(v, v) - sphere->radius * sphere->radius;
-//     Real t0, t1;
-//     if (!solve_quadratic(A, B, C, &t0, &t1)) {
-//         // No intersection
-//         return;
-//     }
-
-//     // This can happen due to numerical inaccuracies
-//     if (t0 > t1) {
-//         std::swap(t0, t1);
-//     }
-//     Real t = -1;
-//     if (t0 >= ray.tnear && t0 < ray.tfar) {
-//         t = t0;
-//     }
-//     if (t1 >= ray.tnear && t1 < ray.tfar && t < 0) {
-//         t = t1;
-//     }
-
-//     if (t >= ray.tnear && t < ray.tfar) {
-//         rtc_ray->tfar = -infinity<float>();
-//     }
-// }
-
-PointAndNormal Parsed_sample_point_on_shape_op::operator()(const Sphere &sphere) const {
+__device__ inline PointAndNormal sample_point_on_shape_op::operator()(const Sphere &sphere) const {
     // https://www.pbr-book.org/3ed-2018/Light_Transport_I_Surface_Reflection/Sampling_Light_Sources#x2-SamplingSpheres
     const Vector3 &center = sphere.position;
     const Real &r = sphere.radius;
@@ -198,18 +76,18 @@ PointAndNormal Parsed_sample_point_on_shape_op::operator()(const Sphere &sphere)
     return PointAndNormal{p_on_sphere, n_on_sphere};
 }
 
-Real Parsed_surface_area_op::operator()(const Sphere &sphere) const {
+__device__ inline Real surface_area_op::operator()(const Sphere &sphere) const {
     return 4 * c_PI * sphere.radius * sphere.radius;
 }
 
-Real Parsed_pdf_point_on_shape_op::operator()(const Sphere &sphere) const {
+__device__ inline Real pdf_point_on_shape_op::operator()(const Sphere &sphere) const {
     // https://www.pbr-book.org/3ed-2018/Light_Transport_I_Surface_Reflection/Sampling_Light_Sources#x2-SamplingSpheres
     const Vector3 &center = sphere.position;
     const Real &r = sphere.radius;
 
     if (distance_squared(ref_point, center) < r * r) {
         // If the reference point is inside the sphere, just sample the whole sphere uniformly
-        return 1 / Parsed_surface_area_op{}(sphere);
+        return 1 / surface_area_op{}(sphere);
     }
     
     Real sin_elevation_max_sq = r * r / distance_squared(ref_point, center);
@@ -224,10 +102,7 @@ Real Parsed_pdf_point_on_shape_op::operator()(const Sphere &sphere) const {
         distance_squared(ref_point, p_on_sphere);
 }
 
-void init_sampling_dist_op::operator()(Sphere &sphere) const {
-}
-
-ShadingInfo Parsed_compute_shading_info_op::operator()(const Sphere &sphere) const {
+__device__ inline ShadingInfo compute_shading_info_op::operator()(const Sphere &sphere) const {
     // To compute the shading frame, we use the geometry normal as normal,
     // and dpdu as one of the tangent vector. 
     // We use the azimuthal angle as u, and the elevation as v, 
@@ -252,4 +127,130 @@ ShadingInfo Parsed_compute_shading_info_op::operator()(const Sphere &sphere) con
                        shading_frame,
                        1 / sphere.radius, /* mean curvature */
                        (length(dpdu) + length(dpdv)) / 2};
+}
+
+__device__ inline std::optional<PathVertex> intersect_op::operator()(const Sphere &sphere) const {
+    // Our sphere is ||p - x||^2 = r^2
+    // substitute x = o + d * t, we want to solve for t
+    // ||p - (o + d * t)||^2 = r^2
+    // (p.x - (o.x + d.x * t))^2 + (p.y - (o.y + d.y * t))^2 + (p.z - (o.z + d.z * t))^2 - r^2 = 0
+    // (d.x^2 + d.y^2 + d.z^2) t^2 + 2 * (d.x * (o.x - p.x) + d.y * (o.y - p.y) + d.z * (o.z - p.z)) t + 
+    // ((p.x-o.x)^2 + (p.y-o.y)^2 + (p.z-o.z)^2  - r^2) = 0
+    // A t^2 + B t + C
+    Vector3 v = ray.org - sphere.position;
+    Real A = dot(ray.dir, ray.dir);
+    Real B = 2 * dot(ray.dir, v);
+    Real C = dot(v, v) - sphere.radius * sphere.radius;
+    Real t0, t1;
+    if (!solve_quadratic(A, B, C, &t0, &t1)) {
+        // No intersection
+        return {};
+    }
+    // This can happen due to numerical inaccuracies
+    if (t0 > t1) {
+        Real tmp = t0;
+        t0 = t1; t1 = tmp;
+    }
+
+    Real t = -1;
+    if (t0 >= ray.tnear && t0 < ray.tfar) {
+        t = t0;
+    }
+    if (t1 >= ray.tnear && t1 < ray.tfar && t < 0) {
+        t = t1;
+    }
+
+    if (t >= ray.tnear && t < ray.tfar) {
+        PathVertex vertex;
+        // Record the intersection
+        vertex.position = ray.org + t * ray.dir;
+        vertex.geometric_normal = vertex.position - sphere.position;
+        // We use the spherical coordinates as uv
+        Vector3 cartesian = vertex.geometric_normal / sphere.radius;
+        // https://en.wikipedia.org/wiki/Spherical_coordinate_system#Cartesian_coordinates
+        // We use the convention that y is up axis.
+        Real elevation = acos(std::clamp(cartesian.y, Real(-1), Real(1)));
+        Real azimuth = atan2(cartesian.z, cartesian.x);
+        vertex.st = { azimuth / c_TWOPI, elevation / c_PI };
+        vertex.uv = vertex.st;
+        vertex.primitive_id = -1;
+        vertex.material_id = sphere.material_id;
+        vertex.shape_id = sphere.shape_id;
+
+
+        // To compute the shading frame, we use the geometry normal as normal,
+        // and dpdu as one of the tangent vector. 
+        // We use the azimuthal angle as u, and the elevation as v, 
+        // thus the point p on sphere and u, v has the following relationship:
+        // p = center + {r * cos(u) * sin(v), r * sin(u) * sin(v), r * cos(v)}
+        // thus dpdu = {-r * sin(u) * sin(v), r * cos(u) * sin(v), 0}
+        //      dpdv = { r * cos(u) * cos(v), r * sin(u) * cos(v), - r * sin(v)}
+        Vector3 dpdu{-sphere.radius * sin(vertex.st[0]) * sin(vertex.st[1]),
+                sphere.radius * cos(vertex.st[0]) * sin(vertex.st[1]),
+            Real(0)};
+        Vector3 dpdv{ sphere.radius * cos(vertex.st[0]) * cos(vertex.st[1]),
+                sphere.radius * sin(vertex.st[0]) * cos(vertex.st[1]),
+            -sphere.radius * sin(vertex.st[1])};
+        // dpdu may not be orthogonal to shading normal:
+        // subtract the projection of shading_normal onto dpdu to make them orthogonal
+        Vector3 tangent = normalize(
+        dpdu - vertex.geometric_normal * dot(vertex.geometric_normal, dpdu));
+        Frame shading_frame(tangent,
+                    normalize(cross(vertex.geometric_normal, tangent)),
+                    vertex.geometric_normal);
+
+        vertex.shading_frame = shading_frame;
+        vertex.mean_curvature = 1 / sphere.radius;
+        vertex.ray_radius = transfer(ray_diff, distance(ray.org, vertex.position));
+        // vertex.ray_radius stores approximatedly dp/dx, 
+        // we get uv_screen_size (du/dx) using (dp/dx)/(dp/du)
+        vertex.uv_screen_size = vertex.ray_radius / (length(dpdu) + length(dpdv)) * 2;
+
+        // Flip the geometry normal to the same direction as the shading normal
+        if (dot(vertex.geometric_normal, vertex.shading_frame.n) < 0) {
+            vertex.geometric_normal = -vertex.geometric_normal;
+        }
+
+        return vertex;
+    }
+
+    return {};
+}
+
+__device__ inline bool occluded_op::operator()(const Sphere &sphere) const {
+    // Our sphere is ||p - x||^2 = r^2
+    // substitute x = o + d * t, we want to solve for t
+    // ||p - (o + d * t)||^2 = r^2
+    // (p.x - (o.x + d.x * t))^2 + (p.y - (o.y + d.y * t))^2 + (p.z - (o.z + d.z * t))^2 - r^2 = 0
+    // (d.x^2 + d.y^2 + d.z^2) t^2 + 2 * (d.x * (o.x - p.x) + d.y * (o.y - p.y) + d.z * (o.z - p.z)) t + 
+    // ((p.x-o.x)^2 + (p.y-o.y)^2 + (p.z-o.z)^2  - r^2) = 0
+    // A t^2 + B t + C
+    Vector3 v = ray.org - sphere.position;
+    Real A = dot(ray.dir, ray.dir);
+    Real B = 2 * dot(ray.dir, v);
+    Real C = dot(v, v) - sphere.radius * sphere.radius;
+    Real t0, t1;
+    if (!solve_quadratic(A, B, C, &t0, &t1)) {
+        // No intersection
+        return false;
+    }
+    // This can happen due to numerical inaccuracies
+    if (t0 > t1) {
+        Real tmp = t0;
+        t0 = t1; t1 = tmp;
+    }
+
+    Real t = -1;
+    if (t0 >= ray.tnear && t0 < ray.tfar) {
+        t = t0;
+    }
+    if (t1 >= ray.tnear && t1 < ray.tfar && t < 0) {
+        t = t1;
+    }
+
+    if (t >= ray.tnear && t < ray.tfar) {
+        return true;
+    } else {
+        return false;
+    }
 }

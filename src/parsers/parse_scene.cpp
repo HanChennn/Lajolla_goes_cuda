@@ -1,14 +1,22 @@
 #include "parse_scene.h"
 #include "3rdparty/pugixml.hpp"
 #include "flexception.h"
+#include "lajolla.h"
 #include "load_serialized.h"
 #include "parse_obj.h"
 #include "parse_ply.h"
 #include "shape_utils.h"
 #include "transform.h"
-#include <cctype>
 #include <map>
 #include <regex>
+
+#include "parsed_shape.h"
+#include "parsed_texture.h"
+#include "parsed_light.h"
+#include "parsed_table_dist.h"
+
+namespace parser
+{
 
 const Real c_default_fov = 45.0;
 const int c_default_res = 256;
@@ -39,6 +47,69 @@ enum class FovAxis {
     SMALLER,
     LARGER
 };
+
+Scene::Scene(const Camera &camera,
+             const std::vector<Material> &materials,
+             const std::vector<Shape> &shapes,
+             const std::vector<Light> &lights,
+             int envmap_light_id,
+             const TexturePool &texture_pool,
+             const RenderOptions &options,
+             const std::string &output_filename) : 
+        camera(camera), materials(materials),
+        shapes(shapes), lights(lights),
+        envmap_light_id(envmap_light_id),
+        texture_pool(texture_pool), options(options),
+        output_filename(output_filename) {
+
+    // Get scene bounding box
+    Vector3 lb{infinity<Real>(), infinity<Real>(), infinity<Real>()};
+    Vector3 ub{-infinity<Real>(), -infinity<Real>(), -infinity<Real>()};
+    std::vector<Shape> &mod_shapes = const_cast<std::vector<Shape>&>(this->shapes);
+    for (Shape &shape : mod_shapes) {
+        if(auto *m = std::get_if<Sphere>(&shape))
+        {
+            Vector3 slb = m->position - m->radius;
+            Vector3 sub = m->position + m->radius;
+            lb = Vector3{min(lb.x, slb.x), min(lb.y, slb.y), min(lb.z, slb.z)};
+            ub = Vector3{max(ub.x, sub.x), min(lb.y, slb.y), min(lb.z, slb.z)};
+        }
+        else if(auto *m = std::get_if<TriangleMesh>(&shape))
+        {
+            for (auto& pos : m->positions)
+            {
+                lb = Vector3{min(lb.x, pos.x), min(lb.y, pos.y), min(lb.z, pos.z)};
+                ub = Vector3{max(ub.x, pos.x), max(ub.y, pos.y), max(ub.z, pos.z)};
+            }
+        }
+    }
+    bounds = BSphere{distance(ub, lb) / 2, (lb + ub) / Real(2)};
+
+    int shape_id = 0;
+    // build shape & light sampling distributions if necessary
+    // TODO: const_cast is a bit ugly...
+    for (Shape &shape : mod_shapes) {
+        init_sampling_dist(shape);
+        std::visit([shape_id](auto& s) {
+            s.shape_id = shape_id;
+        }, shape);
+        shape_id++;
+    }
+    std::vector<Light> &mod_lights = const_cast<std::vector<Light>&>(this->lights);
+    for (Light &light : mod_lights) {
+        init_sampling_dist(light, *this);
+    }
+
+    // build a sampling distributino for all the lights
+    std::vector<Real> power(this->lights.size());
+    for (int i = 0; i < (int)this->lights.size(); i++) {
+        power[i] = light_power(this->lights[i], *this);
+    }
+    light_dist = make_table_dist_1d(power);
+}
+
+Scene::~Scene() {
+}
 
 std::vector<std::string> split_string(const std::string &str, const std::regex &delim_regex) {
     std::sregex_token_iterator first{begin(str), end(str), delim_regex, -1}, last;
@@ -385,7 +456,7 @@ ParsedTexture parse_texture(pugi::xml_node node,
 Texture<Spectrum> parse_spectrum_texture(
         pugi::xml_node node,
         const std::map<std::string /* name id */, ParsedTexture> &texture_map,
-        ParsedTexturePool &texture_pool,
+        TexturePool &texture_pool,
         const std::map<std::string, std::string> &default_map) {
     std::string type = node.name();
     if (type == "spectrum") {
@@ -393,18 +464,18 @@ Texture<Spectrum> parse_spectrum_texture(
             parse_spectrum(node.attribute("value").value(), default_map);
         if (spec.size() > 1) {
             Vector3 xyz = integrate_XYZ(spec);
-            return make_constant_spectrum_texture(fromRGB(XYZ_to_RGB(xyz)));
+            return parser::make_constant_spectrum_texture(fromRGB(XYZ_to_RGB(xyz)));
         } else if (spec.size() == 1) {
-            return make_constant_spectrum_texture(fromRGB(Vector3{1, 1, 1}));
+            return parser::make_constant_spectrum_texture(fromRGB(Vector3{1, 1, 1}));
         } else {
-            return make_constant_spectrum_texture(fromRGB(Vector3{0, 0, 0}));
+            return parser::make_constant_spectrum_texture(fromRGB(Vector3{0, 0, 0}));
         }
     } else if (type == "rgb") {
-        return make_constant_spectrum_texture(
+        return parser::make_constant_spectrum_texture(
             fromRGB(parse_vector3(node.attribute("value").value(), default_map)));
     } else if (type == "srgb") {
         Vector3 srgb = parse_srgb(node.attribute("value").value(), default_map);
-        return make_constant_spectrum_texture(
+        return parser::make_constant_spectrum_texture(
             fromRGB(sRGB_to_RGB(srgb)));
     } else if (type == "ref") {
         // referencing a texture
@@ -421,7 +492,7 @@ Texture<Spectrum> parse_spectrum_texture(
             return make_checkerboard_spectrum_texture(
                 t.color0, t.color1, t.uscale, t.vscale, t.uoffset, t.voffset);
         } else {
-            return make_constant_spectrum_texture(fromRGB(Vector3{0, 0, 0}));
+            return parser::make_constant_spectrum_texture(fromRGB(Vector3{0, 0, 0}));
         }
     } else if (type == "texture") {
         ParsedTexture t = parse_texture(node, default_map);
@@ -439,7 +510,7 @@ Texture<Spectrum> parse_spectrum_texture(
             return make_checkerboard_spectrum_texture(
                 t.color0, t.color1, t.uscale, t.vscale, t.uoffset, t.voffset);
         } else {
-            return make_constant_spectrum_texture(fromRGB(Vector3{0, 0, 0}));
+            return parser::make_constant_spectrum_texture(fromRGB(Vector3{0, 0, 0}));
         }
     } else {
         Error(std::string("Unknown spectrum texture type:") + type);
@@ -450,7 +521,7 @@ Texture<Spectrum> parse_spectrum_texture(
 Texture<Real> parse_float_texture(
         pugi::xml_node node,
         const std::map<std::string /* name id */, ParsedTexture> &texture_map,
-        ParsedTexturePool &texture_pool,
+        TexturePool &texture_pool,
         const std::map<std::string, std::string> &default_map) {
     std::string type = node.name();
     if (type == "ref") {
@@ -640,115 +711,8 @@ std::tuple<int /* width */, int /* height */, std::string /* filename */, Filter
     return std::make_tuple(width, height, filename, filter);
 }
 
-VolumeSpectrum parse_volume_spectrum(pugi::xml_node node,
-                                     const std::map<std::string, std::string> &default_map) {
-    std::string type = node.attribute("type").value();
-    if (type == "constvolume") {
-        Spectrum value = make_zero_spectrum();
-        for (auto child : node.children()) {
-            std::string name = child.attribute("name").value();
-            if (name == "value") {
-                value = parse_color(child, default_map);
-            }
-        }
-        return ConstantVolume<Spectrum>{value};
-    } else if (type == "gridvolume") {
-        std::string filename;
-        for (auto child : node.children()) {
-            std::string name = child.attribute("name").value();
-            if (name == "filename") {
-                filename = parse_string(
-                    child.attribute("value").value(), default_map);
-            }
-        }
-        if (filename.empty()) {
-            Error("Empty filename for a gridvolume.");
-        }
-        return load_volume_from_file<Spectrum>(filename);
-    } else {
-        Error(std::string("Unknown volume type:") + type);
-    }
-    return ConstantVolume<Spectrum>{make_zero_spectrum()};
-}
-
-PhaseFunction parse_phase_function(pugi::xml_node node,
-                                   const std::map<std::string, std::string> &default_map) {
-    std::string type = node.attribute("type").value();
-    if (type == "isotropic") {
-        return IsotropicPhase{};
-    } else if (type == "hg") {
-        Real g = 0;
-        for (auto child : node.children()) {
-            std::string name = child.attribute("name").value();
-            if (name == "g") {
-                g = parse_float(child.attribute("value").value(), default_map);
-            }
-        }
-        return HenyeyGreenstein{g};
-    } else {
-        Error(std::string("Unrecognized phase function:") + type);
-    }
-    return IsotropicPhase{};
-}
-
-std::tuple<std::string /* ID */, Medium> parse_medium(
-        pugi::xml_node node,
-        const std::map<std::string, std::string> &default_map) {
-    PhaseFunction phase_func = IsotropicPhase{};
-
-    std::string type = node.attribute("type").value();
-    std::string id;
-    if (!node.attribute("id").empty()) {
-        id = node.attribute("id").value();
-    }
-    if (type == "homogeneous") {
-        Vector3 sigma_a{0.5, 0.5, 0.5};
-        Vector3 sigma_s{0.5, 0.5, 0.5};
-        Real scale = 1;
-        for (auto child : node.children()) {
-            std::string name = child.attribute("name").value();
-            if (name == "sigmaA" || name == "sigma_a") {
-                sigma_a = parse_color(child, default_map);
-            } else if (name == "sigmaS" || name == "sigma_s") {
-                sigma_s = parse_color(child, default_map);
-            } else if (name == "scale") {
-                scale = parse_float(child.attribute("value").value(),
-                                    default_map);
-            } else if (std::string(child.name()) == "phase") {
-                phase_func = parse_phase_function(child, default_map);
-            }
-        }
-        return std::make_tuple(id,
-            HomogeneousMedium{{phase_func}, sigma_a * scale, sigma_s * scale});
-    } else if (type == "heterogeneous") {
-        VolumeSpectrum albedo = ConstantVolume<Spectrum>{make_const_spectrum(1)};
-        VolumeSpectrum density = ConstantVolume<Spectrum>{make_const_spectrum(1)};
-        Real scale = 1;
-        for (auto child : node.children()) {
-            std::string name = child.attribute("name").value();
-            if (name == "albedo") {
-                albedo = parse_volume_spectrum(child, default_map);
-            } else if (name == "density") {
-                density = parse_volume_spectrum(child, default_map);
-            } else if (name == "scale") {
-                scale = parse_float(child.attribute("value").value(), default_map);
-            } else if (std::string(child.name()) == "phase") {
-                phase_func = parse_phase_function(child, default_map);
-            }
-        }
-        // scale only applies to density!!
-        set_scale(density, scale);
-        return std::make_tuple(id,
-            HeterogeneousMedium{{phase_func}, albedo, density});
-    } else {
-        Error(std::string("Unknown medium type:") + type);
-    }
-}
-
 std::tuple<Camera, std::string /* output filename */, ParsedSampler>
         parse_sensor(pugi::xml_node node,
-                     std::vector<Medium> &media,
-                     std::map<std::string /* name id */, int /* index id */> &medium_map,
                      const std::map<std::string, std::string> &default_map) {
     Real fov = c_default_fov;
     Matrix4x4 to_world = Matrix4x4::identity();
@@ -757,7 +721,6 @@ std::tuple<Camera, std::string /* output filename */, ParsedSampler>
     Filter filter = c_default_filter;
     FovAxis fov_axis = FovAxis::X;
     ParsedSampler sampler;
-    int medium_id = -1;
 
     std::string type = node.attribute("type").value();
     if (type == "perspective") {
@@ -803,27 +766,6 @@ std::tuple<Camera, std::string /* output filename */, ParsedSampler>
                         grand_child.attribute("value").value(), default_map);
                 }
             }
-        } else if (std::string(child.name()) == "ref") {
-            // A reference to a medium
-            pugi::xml_attribute id = child.attribute("id");
-            if (id.empty()) {
-                Error("Medium reference not specified.");
-            }
-            auto it = medium_map.find(id.value());
-            if (it == medium_map.end()) {
-                Error(std::string("Medium reference ") + id.value() + std::string(" not found."));
-            }
-            medium_id = it->second;
-        } else if (std::string(child.name()) == "medium") {
-            Medium m;
-            std::string medium_name;
-            std::tie(medium_name, m) = parse_medium(child, default_map);
-            if (!medium_name.empty()) {
-                medium_map[medium_name] = media.size();
-            }
-            std::string name_value = child.attribute("name").value();
-            medium_id = media.size();
-            media.push_back(m);
         }
     }
 
@@ -842,13 +784,13 @@ std::tuple<Camera, std::string /* output filename */, ParsedSampler>
         fov = degrees(2 * atan(width / 2));
     }
 
-    return std::make_tuple(Camera(to_world, fov, width, height, filter, medium_id),
+    return std::make_tuple(Camera(to_world, fov, width, height, filter),
                            filename, sampler);
 }
 
 Texture<Real> alpha_to_roughness(pugi::xml_node node,
                                  const std::map<std::string /* name id */, ParsedTexture> &texture_map,
-                                 ParsedTexturePool &texture_pool,
+                                 TexturePool &texture_pool,
                                  const std::map<std::string, std::string> &default_map) {
     // Alpha in microfacet models requires special treatment since we need to convert
     // the values to roughness
@@ -862,9 +804,9 @@ Texture<Real> alpha_to_roughness(pugi::xml_node node,
         }
         const ParsedTexture t = t_it->second;
         if (t.type == TextureType::BITMAP) {
-            ParsedImage1 alpha = imread1(t.filename);
+            Image1 alpha = imread1(t.filename);
             // Convert alpha to roughness.
-            ParsedImage1 roughness_img(alpha.width, alpha.height);
+            Image1 roughness_img(alpha.width, alpha.height);
             for (int i = 0; i < alpha.width * alpha.height; i++) {
                 roughness_img.data[i] = sqrt(alpha.data[i]);
             }
@@ -891,9 +833,9 @@ Texture<Real> alpha_to_roughness(pugi::xml_node node,
         }
         tmp_ref_name = tmp_ref_name + std::to_string(ref_id_counter);
         if (t.type == TextureType::BITMAP) {
-            ParsedImage1 alpha = imread1(t.filename);
+            Image1 alpha = imread1(t.filename);
             // Convert alpha to roughness.
-            ParsedImage1 roughness_img(alpha.width, alpha.height);
+            Image1 roughness_img(alpha.width, alpha.height);
             for (int i = 0; i < alpha.width * alpha.height; i++) {
                 roughness_img.data[i] = sqrt(alpha.data[i]);
             }
@@ -915,7 +857,7 @@ Texture<Real> alpha_to_roughness(pugi::xml_node node,
 std::tuple<std::string /* ID */, Material> parse_bsdf(
         pugi::xml_node node,
         const std::map<std::string /* name id */, ParsedTexture> &texture_map,
-        ParsedTexturePool &texture_pool,
+        TexturePool &texture_pool,
         const std::map<std::string, std::string> &default_map,
         const std::string &parent_id = "") {
     std::string type = node.attribute("type").value();
@@ -932,7 +874,7 @@ std::tuple<std::string /* ID */, Material> parse_bsdf(
         }
     } else if (type == "diffuse") {
         Texture<Spectrum> reflectance =
-            make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
+            parser::make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
         for (auto child : node.children()) {
             std::string name = child.attribute("name").value();
             if (name == "reflectance") {
@@ -943,9 +885,9 @@ std::tuple<std::string /* ID */, Material> parse_bsdf(
         return std::make_tuple(id, Lambertian{reflectance});
     } else if (type == "roughplastic" || type == "plastic") {
         Texture<Spectrum> diffuse_reflectance =
-            make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
+            parser::make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
         Texture<Spectrum> specular_reflectance =
-            make_constant_spectrum_texture(fromRGB(Vector3{1, 1, 1}));
+            parser::make_constant_spectrum_texture(fromRGB(Vector3{1, 1, 1}));
         Texture<Real> roughness = make_constant_float_texture(Real(0.1));
         if (type == "plastic") {
             // Approximate plastic materials with very small roughness
@@ -975,9 +917,9 @@ std::tuple<std::string /* ID */, Material> parse_bsdf(
             diffuse_reflectance, specular_reflectance, roughness, intIOR / extIOR});
     } else if (type == "roughdielectric" || type == "dielectric") {
         Texture<Spectrum> specular_reflectance =
-            make_constant_spectrum_texture(fromRGB(Vector3{1, 1, 1}));
+            parser::make_constant_spectrum_texture(fromRGB(Vector3{1, 1, 1}));
         Texture<Spectrum> specular_transmittance =
-            make_constant_spectrum_texture(fromRGB(Vector3{1, 1, 1}));
+            parser::make_constant_spectrum_texture(fromRGB(Vector3{1, 1, 1}));
         Texture<Real> roughness = make_constant_float_texture(Real(0.1));
         if (type == "dielectric") {
             // Approximate plastic materials with very small roughness
@@ -1008,7 +950,7 @@ std::tuple<std::string /* ID */, Material> parse_bsdf(
             specular_reflectance, specular_transmittance, roughness, intIOR / extIOR});
     } else if (type == "disneydiffuse") {
         Texture<Spectrum> base_color =
-            make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
+            parser::make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
         Texture<Real> roughness = make_constant_float_texture(Real(0.5));
         Texture<Real> subsurface = make_constant_float_texture(Real(0));
         for (auto child : node.children()) {
@@ -1027,7 +969,7 @@ std::tuple<std::string /* ID */, Material> parse_bsdf(
         return std::make_tuple(id, DisneyDiffuse{base_color, roughness, subsurface});
     } else if (type == "disneymetal") {
         Texture<Spectrum> base_color =
-            make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
+            parser::make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
         Texture<Real> roughness =
             make_constant_float_texture(Real(0.5));
         Texture<Real> anisotropic =
@@ -1047,7 +989,7 @@ std::tuple<std::string /* ID */, Material> parse_bsdf(
         }
         return std::make_tuple(id, DisneyMetal{base_color, roughness, anisotropic});
     } else if (type == "disneyglass") {
-        Texture<Spectrum> base_color = make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
+        Texture<Spectrum> base_color = parser::make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
         Texture<Real> roughness = make_constant_float_texture(Real(0.5));
         Texture<Real> anisotropic = make_constant_float_texture(Real(0.0));
         Real eta = Real(1.5);
@@ -1079,7 +1021,7 @@ std::tuple<std::string /* ID */, Material> parse_bsdf(
         return std::make_tuple(id, DisneyClearcoat{clearcoat_gloss});
     } else if (type == "disneysheen") {
         Texture<Spectrum> base_color =
-            make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
+            parser::make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
         Texture<Real> sheen_tint = make_constant_float_texture(Real(0.5));
         for (auto child : node.children()) {
             std::string name = child.attribute("name").value();
@@ -1093,7 +1035,7 @@ std::tuple<std::string /* ID */, Material> parse_bsdf(
         }
         return std::make_tuple(id, DisneySheen{base_color, sheen_tint});
     } else if (type == "disneybsdf" || type == "principled") {
-        Texture<Spectrum> base_color = make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
+        Texture<Spectrum> base_color = parser::make_constant_spectrum_texture(fromRGB(Vector3{0.5, 0.5, 0.5}));
         Texture<Real> specular_transmission = make_constant_float_texture(Real(0));
         Texture<Real> metallic = make_constant_float_texture(Real(0));
         Texture<Real> subsurface = make_constant_float_texture(Real(0));
@@ -1166,46 +1108,29 @@ std::tuple<std::string /* ID */, Material> parse_bsdf(
     } else if (type == "null") {
         // TODO: implement actual null BSDF (the ray will need to pass through the shape)
         return std::make_tuple(id, Lambertian{
-            make_constant_spectrum_texture(fromRGB(Vector3{0.0, 0.0, 0.0}))});
+            parser::make_constant_spectrum_texture(fromRGB(Vector3{0.0, 0.0, 0.0}))});
     } else {
         Error(std::string("Unknown BSDF: ") + type);
     }
     return std::make_tuple("", Material{});
 }
 
-ParsedShape parse_shape(pugi::xml_node node,
+Shape parse_shape(pugi::xml_node node,
                   std::vector<Material> &materials,
                   std::map<std::string /* name id */, int /* index id */> &material_map,
                   const std::map<std::string /* name id */, ParsedTexture> &texture_map,
-                  ParsedTexturePool &texture_pool,
-                  std::vector<Medium> &media,
-                  std::map<std::string /* name id */, int /* index id */> &medium_map,
-                  std::vector<ParsedLight> &lights,
-                  const std::vector<ParsedShape> &shapes,
+                  TexturePool &texture_pool,
+                  std::vector<Light> &lights,
+                  const std::vector<Shape> &shapes,
                   const std::map<std::string, std::string> &default_map) {
     int material_id = -1;
-    int interior_medium_id = -1;
-    int exterior_medium_id = -1;
     for (auto child : node.children()) {
         std::string name = child.name();
         if (name == "ref") {
             std::string name_value = child.attribute("name").value();
             pugi::xml_attribute id = child.attribute("id");
             if (id.empty()) {
-                Error("Material/medium reference id not specified.");
-            }
-            if (name_value == "interior") {
-                auto it = medium_map.find(id.value());
-                if (it == medium_map.end()) {
-                    Error(std::string("Medium reference ") + id.value() + std::string(" not found."));
-                }
-                interior_medium_id = it->second;
-            } else if (name_value == "exterior") {
-                auto it = medium_map.find(id.value());
-                if (it == medium_map.end()) {
-                    Error(std::string("Medium reference ") + id.value() + std::string(" not found."));
-                }
-                exterior_medium_id = it->second;
+                Error("Material reference id not specified.");
             } else {
                 auto it = material_map.find(id.value());
                 if (it == material_map.end()) {
@@ -1223,26 +1148,10 @@ ParsedShape parse_shape(pugi::xml_node node,
             }
             material_id = materials.size();
             materials.push_back(m);
-        } else if (name == "medium") {
-            Medium m;
-            std::string medium_name;
-            std::tie(medium_name, m) = parse_medium(child, default_map);
-            if (!medium_name.empty()) {
-                medium_map[medium_name] = media.size();
-            }
-            std::string name_value = child.attribute("name").value();
-            if (name_value == "interior") {
-                interior_medium_id = media.size();
-            } else if (name_value == "exterior") {
-                exterior_medium_id = media.size();
-            } else {
-                Error(std::string("Unrecognized medium name: ") + name_value);
-            }
-            media.push_back(m);
         }
     }
 
-    ParsedShape shape;
+    Shape shape;
     std::string type = node.attribute("type").value();
     if (type == "obj") {
         std::string filename;
@@ -1262,7 +1171,7 @@ ParsedShape parse_shape(pugi::xml_node node,
             }
         }
         shape = parse_obj(filename, to_world);
-        ParsedTriangleMesh &mesh = std::get<ParsedTriangleMesh>(shape);
+        TriangleMesh &mesh = std::get<TriangleMesh>(shape);
         if (face_normals) {
             mesh.normals = std::vector<Vector3>{};
         } else {
@@ -1291,7 +1200,7 @@ ParsedShape parse_shape(pugi::xml_node node,
             }
         }
         shape = load_serialized(filename, shape_index, to_world);
-        ParsedTriangleMesh &mesh = std::get<ParsedTriangleMesh>(shape);
+        TriangleMesh &mesh = std::get<TriangleMesh>(shape);
         if (face_normals) {
             mesh.normals = std::vector<Vector3>{};
         } else {
@@ -1320,7 +1229,7 @@ ParsedShape parse_shape(pugi::xml_node node,
             }
         }
         shape = parse_ply(filename, to_world);
-        ParsedTriangleMesh &mesh = std::get<ParsedTriangleMesh>(shape);
+        TriangleMesh &mesh = std::get<TriangleMesh>(shape);
         if (face_normals) {
             mesh.normals = std::vector<Vector3>{};
         } else {
@@ -1346,7 +1255,7 @@ ParsedShape parse_shape(pugi::xml_node node,
     } else if (type == "rectangle") {
         Matrix4x4 to_world = Matrix4x4::identity();
         bool flip_normals = false;
-        ParsedTriangleMesh mesh;
+        TriangleMesh mesh;
         mesh.positions = {
             Vector3{-1, -1, 0}, Vector3{ 1, -1, 0}, Vector3{ 1, 1, 0}, Vector3{-1, 1, 0}
         };
@@ -1385,8 +1294,6 @@ ParsedShape parse_shape(pugi::xml_node node,
         Error(std::string("Unknown shape:") + type);
     }
     set_material_id(shape, material_id);
-    set_interior_medium_id(shape, interior_medium_id);
-    set_exterior_medium_id(shape, exterior_medium_id);
 
     for (auto child : node.children()) {
         std::string name = child.name();
@@ -1412,17 +1319,14 @@ std::unique_ptr<Scene> parse_scene(pugi::xml_node node) {
                   c_default_fov,
                   c_default_res,
                   c_default_res,
-                  c_default_filter,
-                  -1 /*medium_id*/);
+                  c_default_filter);
     std::string filename = c_default_filename;
     std::vector<Material> materials;
     std::map<std::string /* name id */, int /* index id */> material_map;
-    ParsedTexturePool texture_pool;
+    TexturePool texture_pool;
     std::map<std::string /* name id */, ParsedTexture> texture_map;
-    std::vector<Medium> media;
-    std::map<std::string /* name id */, int /* index id */> medium_map;
-    std::vector<ParsedShape> shapes;
-    std::vector<ParsedLight> lights;
+    std::vector<Shape> shapes;
+    std::vector<Light> lights;
     // For <default> tags
     // e.g., <default name="spp" value="4096"/> will map "spp" to "4096"
     std::map<std::string, std::string> default_map;
@@ -1437,7 +1341,7 @@ std::unique_ptr<Scene> parse_scene(pugi::xml_node node) {
         } else if (name == "sensor") {
             ParsedSampler sampler;
             std::tie(camera, filename, sampler) =
-                parse_sensor(child, media, medium_map, default_map);
+                parse_sensor(child, default_map);
             options.samples_per_pixel = sampler.sample_count;
         } else if (name == "bsdf") {
             std::string material_name;
@@ -1449,13 +1353,11 @@ std::unique_ptr<Scene> parse_scene(pugi::xml_node node) {
                 materials.push_back(m);
             }
         } else if (name == "shape") {
-            ParsedShape s = parse_shape(child,
+            Shape s = parse_shape(child,
                                   materials,
                                   material_map,
                                   texture_map,
                                   texture_pool,
-                                  media,
-                                  medium_map,
                                   lights,
                                   shapes,
                                   default_map);
@@ -1488,7 +1390,7 @@ std::unique_ptr<Scene> parse_scene(pugi::xml_node node) {
                     Texture<Spectrum> t = make_image_spectrum_texture(
                         "__envmap_texture__", filename, texture_pool, 1, 1);
                     Matrix4x4 to_local = inverse(to_world);
-                    lights.push_back(ParsedEnvmap{t, to_world, to_local, scale});
+                    lights.push_back(Envmap{t, to_world, to_local, scale});
                     envmap_light_id = (int)lights.size() - 1;
                 } else {
                     Error("Filename unspecified for envmap.");
@@ -1513,10 +1415,10 @@ std::unique_ptr<Scene> parse_scene(pugi::xml_node node) {
                         intensity = parse_intensity(grand_child, default_map);
                     }
                 }
-                ParsedShape s = Sphere{{}, position, Real(1e-4)};
+                Shape s = Sphere{{}, position, Real(1e-4)};
                 intensity *= (c_FOURPI / surface_area(s));
                 Material m = Lambertian{
-                    make_constant_spectrum_texture(make_zero_spectrum())};
+                    parser::make_constant_spectrum_texture(make_zero_spectrum())};
                 int material_id = materials.size();
                 materials.push_back(m);
                 set_material_id(s, material_id);
@@ -1548,8 +1450,8 @@ std::unique_ptr<Scene> parse_scene(pugi::xml_node node) {
                 }
                 direction = normalize(direction);
                 Vector3 tangent, bitangent;
-                coordinate_system(-direction, tangent, bitangent);
-                ParsedTriangleMesh mesh;
+                std::tie(tangent, bitangent) = coordinate_system(-direction);
+                TriangleMesh mesh;
                 Real length = Real(1e-3);
                 Real dist = Real(1e3);
                 mesh.positions = {
@@ -1564,9 +1466,9 @@ std::unique_ptr<Scene> parse_scene(pugi::xml_node node) {
                     direction, direction, direction, direction
                 };
                 intensity *= ((dist * dist) / (length * length));
-                ParsedShape s = mesh;
+                Shape s = mesh;
                 Material m = Lambertian{
-                    make_constant_spectrum_texture(make_zero_spectrum())};
+                    parser::make_constant_spectrum_texture(make_zero_spectrum())};
                 int material_id = materials.size();
                 materials.push_back(m);
                 set_material_id(s, material_id);
@@ -1576,14 +1478,6 @@ std::unique_ptr<Scene> parse_scene(pugi::xml_node node) {
             } else {
                 Error(std::string("Unknown emitter type:") + type);
             }
-        } else if (name == "medium") {
-            std::string medium_name;
-            Medium m;
-            std::tie(medium_name, m) = parse_medium(child, default_map);
-            if (!medium_name.empty()) {
-                medium_map[medium_name] = media.size();
-                media.push_back(m);
-            }
         }
     }
     return std::make_unique<Scene>(
@@ -1591,7 +1485,6 @@ std::unique_ptr<Scene> parse_scene(pugi::xml_node node) {
                 materials,
                 shapes,
                 lights,
-                media,
                 envmap_light_id,
                 texture_pool,
                 options,
@@ -1613,4 +1506,6 @@ std::unique_ptr<Scene> parse_scene(const fs::path &filename) {
     // switch back to the old current working directory
     fs::current_path(old_path);
     return scene;
+}
+
 }

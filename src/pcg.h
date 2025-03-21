@@ -19,7 +19,7 @@ struct pcg32_state {
 };
 
 // http://www.pcg-random.org/download.html
-__host__ __device__ inline uint32_t next_pcg32(pcg32_state &rng) {
+__device__ inline uint32_t next_pcg32(pcg32_state &rng) {
     uint64_t oldstate = rng.state;
     // Advance internal state
     rng.state = oldstate * 6364136223846793005ULL + (rng.inc|1);
@@ -30,7 +30,7 @@ __host__ __device__ inline uint32_t next_pcg32(pcg32_state &rng) {
 }
 
 // https://github.com/wjakob/pcg32/blob/master/pcg32.h#L47
-__host__ __device__ inline pcg32_state init_pcg32(uint64_t stream_id = 1, uint64_t seed = 0x31e241f862a1fb5eULL) {
+__device__ inline pcg32_state init_pcg32(uint64_t stream_id = 1, uint64_t seed = 0x31e241f862a1fb5eULL) {
     pcg32_state s;
     s.state = 0U;
     s.inc = (stream_id << 1u) | 1u;
@@ -41,13 +41,13 @@ __host__ __device__ inline pcg32_state init_pcg32(uint64_t stream_id = 1, uint64
 }
 
 template <typename T>
-__host__ __device__ inline T next_pcg32_real(pcg32_state &rng) {
+__device__ inline T next_pcg32_real(pcg32_state &rng) {
     return T(0);
 }
 
 // https://github.com/wjakob/pcg32/blob/master/pcg32.h
 template <>
-__host__ __device__ inline float next_pcg32_real(pcg32_state &rng) {
+__device__ inline float next_pcg32_real(pcg32_state &rng) {
     union {
         uint32_t u;
         float f;
@@ -58,7 +58,7 @@ __host__ __device__ inline float next_pcg32_real(pcg32_state &rng) {
 
 // https://github.com/wjakob/pcg32/blob/master/pcg32.h
 template <>
-__host__ __device__ inline double next_pcg32_real(pcg32_state &rng) {
+__device__ inline double next_pcg32_real(pcg32_state &rng) {
     union {
         uint64_t u;
         double d;

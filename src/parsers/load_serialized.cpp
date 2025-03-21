@@ -4,11 +4,14 @@
 #include "transform.h"
 #include <fstream>
 #include <iostream>
+#include "parsed_shape.h"
 
 #define MTS_FILEFORMAT_VERSION_V3 0x0003
 #define MTS_FILEFORMAT_VERSION_V4 0x0004
 
 #define ZSTREAM_BUFSIZE 32768
+
+namespace parser{
 
 enum ETriMeshFlags {
     EHasNormals = 0x0001,
@@ -171,7 +174,7 @@ std::vector<Vector3> load_color(ZStream &zs, int num_vertices) {
     return colors;
 }
 
-ParsedTriangleMesh load_serialized(const fs::path &filename,
+TriangleMesh load_serialized(const fs::path &filename,
                              int shape_index,
                              const Matrix4x4 &to_world) {
     std::fstream fs(filename.c_str(), std::fstream::in | std::fstream::binary);
@@ -205,7 +208,7 @@ ParsedTriangleMesh load_serialized(const fs::path &filename,
     bool file_double_precision = flags & EDoublePrecision;
     // bool face_normals = flags & EFaceNormals;
 
-    ParsedTriangleMesh mesh;
+    TriangleMesh mesh;
     if (file_double_precision) {
         mesh.positions = load_position<double>(zs, vertex_count);
     } else {
@@ -253,4 +256,6 @@ ParsedTriangleMesh load_serialized(const fs::path &filename,
     }
 
     return mesh;
+}
+
 }

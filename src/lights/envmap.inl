@@ -1,4 +1,4 @@
-__host__ __device__ inline PointAndNormal sample_point_on_light_envmap(const Envmap &light, const Vector2 &rnd_param_uv) const {
+__device__ inline PointAndNormal sample_point_on_light_envmap(const Envmap &light, const Vector2 &rnd_param_uv) {
     Vector2 uv = sample(light.sampling_dist, rnd_param_uv);
     // Convert uv to spherical coordinates
     Real azimuth = uv[0] * (2 * c_PI);
@@ -13,7 +13,7 @@ __host__ __device__ inline PointAndNormal sample_point_on_light_envmap(const Env
     return PointAndNormal{Vector3{0, 0, 0}, -world_dir};
 }
 
-__host__ __device__ inline Real pdf_point_on_light_envmap(const Envmap &light, const PointAndNormal &point_on_light) const {
+__device__ inline Real pdf_point_on_light_envmap(const Envmap &light, const PointAndNormal &point_on_light) {
     // We store the direction pointing outwards from light in point_on_light.normal.
     Vector3 world_dir = -point_on_light.normal;
     // Convert the direction to local Catesian coordinates.
@@ -35,7 +35,7 @@ __host__ __device__ inline Real pdf_point_on_light_envmap(const Envmap &light, c
     return pdf(light.sampling_dist, uv) / (2 * c_PI * c_PI * sin_elevation);
 }
 
-__host__ __device__ inline Spectrum emission_envmap(const Envmap &light, const Vector3 &view_dir, Real footprint, const TexturePool& texture_pool) const {
+__device__ inline Spectrum emission_envmap(const Envmap &light, const Vector3 &view_dir, Real view_footprint, const TexturePool& texture_pool) {
     // View dir is pointing outwards "from" the light.
     // An environment map stores the light from the opposite direction,
     // so we need to flip view dir.

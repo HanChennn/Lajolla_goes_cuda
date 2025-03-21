@@ -7,6 +7,7 @@
 #include "spectrum.h"
 #include "texture.h"
 #include "vector.h"
+#include "transform.h"
 #include <variant>
 
 /// An area light attached on a shape to make it emit lights.
@@ -35,11 +36,11 @@ using Light = std::variant<DiffuseAreaLight, Envmap>;
 #include "lights/diffuse_area_light.inl"
 #include "lights/envmap.inl"
 
-__host__ __device__ inline PointAndNormal sample_point_on_light(const Light &light,
+__device__ inline PointAndNormal sample_point_on_light(const Light &light,
                                      const Vector3 &ref_point,
                                      const Vector2 &rnd_param_uv,
                                      Real rnd_param_w,
-                                     const Shape* shapes) {
+                                     const CUArray<Shape> &shapes) {
     if (auto *l = std::get_if<DiffuseAreaLight>(&light)) 
         return sample_point_on_light_diffuse_area_light(*l, ref_point, rnd_param_uv, rnd_param_w, shapes);
     else if (auto *l = std::get_if<Envmap>(&light))
@@ -48,10 +49,10 @@ __host__ __device__ inline PointAndNormal sample_point_on_light(const Light &lig
         return PointAndNormal{ Vector3{0.0, 0.0, 0.0}, Vector3{0.0, 0.0, 0.0} };
 }
 
-__host__ __device__ inline Real pdf_point_on_light(const Light &light,
+__device__ inline Real pdf_point_on_light(const Light &light,
                         const PointAndNormal &point_on_light,
                         const Vector3 &ref_point,
-                        const Shape* shapes) {
+                        const CUArray<Shape> &shapes) {
     if (auto *l = std::get_if<DiffuseAreaLight>(&light)) 
         return pdf_point_on_light_diffuse_area_light(*l, point_on_light, ref_point, shapes);
     else if (auto *l = std::get_if<Envmap>(&light))
@@ -60,7 +61,7 @@ __host__ __device__ inline Real pdf_point_on_light(const Light &light,
         return Real(0.0);
 }
 
-__host__ __device__ inline Spectrum emission(const Light &light,
+__device__ inline Spectrum emission(const Light &light,
                   const Vector3 &view_dir,
                   Real view_footprint,
                   const PointAndNormal &point_on_light,
@@ -71,4 +72,8 @@ __host__ __device__ inline Spectrum emission(const Light &light,
         return emission_envmap(*l, view_dir, view_footprint, texture_pool);
     else
         return Spectrum{0.0, 0.0, 0.0};
+}
+
+__device__ inline bool is_envmap(const Light &light) {
+    return std::get_if<Envmap>(&light) != nullptr;
 }

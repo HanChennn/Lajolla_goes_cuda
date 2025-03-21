@@ -2,9 +2,14 @@
 
 #include "lajolla.h"
 #include "matrix.h"
-#include "shape.h"
+
+namespace parser{
+
+struct TriangleMesh;
 
 /// Load Mitsuba's serialized file format.
-ParsedTriangleMesh load_serialized(const fs::path &filename,
+TriangleMesh load_serialized(const fs::path &filename,
                              int shape_index,
                              const Matrix4x4 &to_world);
+
+}

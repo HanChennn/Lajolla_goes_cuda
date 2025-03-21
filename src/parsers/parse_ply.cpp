@@ -6,7 +6,11 @@
 
 #include <fstream>
 
-ParsedTriangleMesh parse_ply(const fs::path &filename, const Matrix4x4 &to_world) {
+#include "parsed_shape.h"
+
+namespace parser{
+
+TriangleMesh parse_ply(const fs::path &filename, const Matrix4x4 &to_world) {
     std::ifstream ifs(filename, std::ios::binary);
     tinyply::PlyFile ply_file;
     ply_file.parse_header(ifs);
@@ -35,7 +39,7 @@ ParsedTriangleMesh parse_ply(const fs::path &filename, const Matrix4x4 &to_world
 
     ply_file.read(ifs);
 
-    ParsedTriangleMesh mesh;
+    TriangleMesh mesh;
     mesh.positions.resize(vertices->count);
     if (vertices->t == tinyply::Type::FLOAT32) {
         float *data = (float*)vertices->buffer.get();
@@ -120,4 +124,6 @@ ParsedTriangleMesh parse_ply(const fs::path &filename, const Matrix4x4 &to_world
     }
 
     return mesh;
+}
+
 }

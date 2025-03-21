@@ -1,69 +1,104 @@
 #include "scene.h"
 #include "table_dist.h"
-#include "light.h"
-#include "parse_scene.h"
+#include "parsers/parse_scene.h"
+#include "parsers/parsed_shape.h"
+#include "parsers/parsed_light.h"
+#include "parsers/parsed_texture.h"
+#include "parsers/parsed_table_dist.h"
 
-Scene::Scene(const Camera &camera,
-             const std::vector<Material> &materials,
-             const std::vector<ParsedShape> &shapes,
-             const std::vector<ParsedLight> &lights,
-             const std::vector<Medium> &media,
-             int envmap_light_id,
-             const ParsedTexturePool &texture_pool,
-             const RenderOptions &options,
-             const std::string &output_filename) : 
-        camera(camera), materials(materials),
-        shapes(shapes), lights(lights), media(media),
-        envmap_light_id(envmap_light_id),
-        texture_pool(texture_pool), options(options),
-        output_filename(output_filename) {
+Scene::Scene(const parser::Scene& parsed_scene) : 
+        camera(parsed_scene.camera), 
+        envmap_light_id(parsed_scene.envmap_light_id),
+        bounds(parsed_scene.bounds), options(parsed_scene.options) {
 
-    Vector3 lb{0, 0, 0};
-    Vector3 ub{0, 0, 0};
-    std::vector<ParsedShape> &mod_shapes = const_cast<std::vector<ParsedShape>&>(this->shapes);
-    for (ParsedShape &shape : mod_shapes) {
-        if(auto *m = std::get_if<Sphere>(&shape))
+    materials.init(parsed_scene.materials);
+    
+    std::vector<Shape> shapes_vector;
+    for(auto& shape : parsed_scene.shapes){
+        if(auto *s = std::get_if<Sphere>(&shape))
         {
-            lb = min(lb, m->position - m->radius);
-            ub = max(ub, m->position + m->radius);
+            shapes_vector.push_back(*s);
         }
-        else if(auto *m = std::get_if<ParsedTriangleMesh>(&shape))
+        else if(auto *s = std::get_if<parser::TriangleMesh>(&shape))
         {
-            for (auto& pos : m->positions)
-            {
-                lb = min(lb, pos);
-                ub = max(ub, pos);
-            }
+            TriangleMesh mesh;
+            mesh.area_light_id = s->area_light_id;
+            mesh.material_id = s->material_id;
+            mesh.shape_id = s->shape_id;
+            mesh.total_area = s->total_area;
+            mesh.positions.init(s->positions);
+            mesh.indices.init(s->indices);
+            mesh.normals.init(s->normals);
+            mesh.uvs.init(s->uvs);
+            mesh.triangle_sampler.cdf.init(s->triangle_sampler.cdf);
+            mesh.triangle_sampler.pmf.init(s->triangle_sampler.pmf);
+
+            shapes_vector.push_back(std::move(mesh));
         }
     }
-    bounds = BSphere{distance(ub, lb) / 2, (lb + ub) / Real(2)};
+    shapes.init(shapes_vector);
 
-    // build shape & light sampling distributions if necessary
-    // TODO: const_cast is a bit ugly...
-    std::vector<ParsedShape> &mod_shapes = const_cast<std::vector<ParsedShape>&>(this->shapes);
-    for (ParsedShape &shape : mod_shapes) {
-        init_sampling_dist(shape);
-    }
-    std::vector<ParsedLight> &mod_lights = const_cast<std::vector<ParsedLight>&>(this->lights);
-    for (ParsedLight &light : mod_lights) {
-        init_sampling_dist(light, *this);
-    }
+    std::vector<Light> lights_vector;
+    for(auto& light : parsed_scene.lights){
+        if(auto *l = std::get_if<DiffuseAreaLight>(&light))
+        {
+            lights_vector.push_back(*l);
+        }
+        else if(auto *l = std::get_if<parser::Envmap>(&light))
+        {
+            Envmap envmap;
+            envmap.values = l->values;
+            envmap.to_local = l->to_local;
+            envmap.to_world = l->to_world;
+            envmap.scale = l->scale;
+            envmap.sampling_dist.height = l->sampling_dist.height;
+            envmap.sampling_dist.width = l->sampling_dist.width;
+            envmap.sampling_dist.total_values = l->sampling_dist.total_values;
+            envmap.sampling_dist.cdf_marginals.init(l->sampling_dist.cdf_marginals);
+            envmap.sampling_dist.cdf_rows.init(l->sampling_dist.cdf_rows);
+            envmap.sampling_dist.pdf_marginals.init(l->sampling_dist.pdf_marginals);
+            envmap.sampling_dist.pdf_rows.init(l->sampling_dist.pdf_rows);
 
-    // build a sampling distributino for all the lights
-    std::vector<Real> power(this->lights.size());
-    for (int i = 0; i < (int)this->lights.size(); i++) {
-        power[i] = light_power(this->lights[i], *this);
+            lights_vector.push_back(std::move(envmap));
+        }
     }
-    light_dist = make_table_dist_1d(power);
+    lights.init(lights_vector);
+
+    std::vector<Mipmap1> mipmap1_vector;
+    for(auto& m : parsed_scene.texture_pool.image1s){
+        Mipmap1 mipmap;
+        std::vector<CUImage1> img1_vector;
+        for(auto& i : m.images){
+            CUImage1 img;
+            img.width = i.width;
+            img.height = i.height;
+            img.data.init(i.data);
+            img1_vector.push_back(std::move(img));
+        }
+        mipmap.images.init(img1_vector);
+        mipmap1_vector.push_back(mipmap);
+    }
+    texture_pool.image1s.init(mipmap1_vector);
+
+    std::vector<Mipmap3> mipmap3_vector;
+    for(auto& m : parsed_scene.texture_pool.image3s){
+        Mipmap3 mipmap;
+        std::vector<CUImage3> img3_vector;
+        for(auto& i : m.images){
+            CUImage3 img;
+            img.width = i.width;
+            img.height = i.height;
+            img.data.init(i.data);
+            img3_vector.push_back(std::move(img));
+        }
+        mipmap.images.init(img3_vector);
+        mipmap3_vector.push_back(mipmap);
+    }
+    texture_pool.image3s.init(mipmap3_vector);
+
+    light_dist.cdf.init(parsed_scene.light_dist.cdf);
+    light_dist.pmf.init(parsed_scene.light_dist.pmf);
 }
 
 Scene::~Scene() {
-}
-
-int sample_light(const Scene &scene, Real u) {
-    return sample_1d_parsed(scene.light_dist, u);
-}
-
-Real light_pmf(const Scene &scene, int light_id) {
-    return pmf_1d_parsed(scene.light_dist, light_id);
 }

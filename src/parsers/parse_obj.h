@@ -2,8 +2,13 @@
 
 #include "lajolla.h"
 #include "matrix.h"
-#include "shape.h"
+
+namespace parser{
+
+struct TriangleMesh;
 
 /// Parse Wavefront obj files. Currently only supports triangles and quads.
 /// Throw errors if encountered general polygons.
-ParsedTriangleMesh parse_obj(const fs::path &filename, const Matrix4x4 &to_world);
+TriangleMesh parse_obj(const fs::path &filename, const Matrix4x4 &to_world);
+
+}

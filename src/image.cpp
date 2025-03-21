@@ -25,8 +25,8 @@ inline bool ends_with(const string &str, const string &suffix) {
     return true;
 }
 
-ParsedImage1 imread1(const fs::path &filename) {
-    ParsedImage1 img;
+Image1 imread1(const fs::path &filename) {
+    Image1 img;
     std::string extension = to_lowercase(filename.extension().string());
     // JPG, PNG, TGA, BMP, PSD, GIF, HDR, PIC
     if (extension == ".jpg" ||
@@ -43,7 +43,7 @@ ParsedImage1 imread1(const fs::path &filename) {
 #else
         float *data = stbi_loadf(filename.c_str(), &w, &h, &n, 1);
 #endif
-        img = ParsedImage1(w, h);
+        img = Image1(w, h);
         if (data == nullptr) {
             Error(std::string("Failure when loading image: ") + filename.string());
         }
@@ -66,7 +66,7 @@ ParsedImage1 imread1(const fs::path &filename) {
             FreeEXRErrorMessage(err);
             Error(std::string("Failure when loading image: ") + filename.string());
         }
-        img = ParsedImage1(width, height);
+        img = Image1(width, height);
         for (int i = 0; i < width * height; i++) {
             img(i) = (data[4 * i] + data[4 * i + 1] + data[4 * i + 2]) / 3;
         }
@@ -77,8 +77,8 @@ ParsedImage1 imread1(const fs::path &filename) {
     return img;
 }
 
-ParsedImage3 imread3(const fs::path &filename) {
-    ParsedImage3 img;
+Image3 imread3(const fs::path &filename) {
+    Image3 img;
     std::string extension = to_lowercase(filename.extension().string());
     // JPG, PNG, TGA, BMP, PSD, GIF, HDR, PIC
     if (extension == ".jpg" ||
@@ -95,7 +95,7 @@ ParsedImage3 imread3(const fs::path &filename) {
 #else
         float* data = stbi_loadf(filename.c_str(), &w, &h, &n, 3);
 #endif
-        img = ParsedImage3(w, h);
+        img = Image3(w, h);
         if (data == nullptr) {
             Error(std::string("Failure when loading image: ") + filename.string());
         }
@@ -121,7 +121,7 @@ ParsedImage3 imread3(const fs::path &filename) {
             FreeEXRErrorMessage(err);
             Error(std::string("Failure when loading image: ") + filename.string());
         }
-        img = ParsedImage3(width, height);
+        img = Image3(width, height);
         for (int i = 0; i < width * height; i++) {
             img(i) = Vector3{data[4 * i], data[4 * i + 1], data[4 * i + 2]};
         }
@@ -132,7 +132,7 @@ ParsedImage3 imread3(const fs::path &filename) {
     return img;
 }
 
-void imwrite(const fs::path &filename, const ParsedImage3 &image) {
+void imwrite(const fs::path &filename, const Image3 &image) {
 #ifdef _WINDOWS
     if (ends_with(filename.string(), ".pfm")) {
 #else

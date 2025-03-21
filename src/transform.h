@@ -4,17 +4,7 @@
 #include "matrix.h"
 #include "vector.h"
 
-/// A collection of 3D transformations.
-__host__ __device__ inline Matrix4x4 translate(const Vector3 &delta);
-__host__ __device__ inline Matrix4x4 scale(const Vector3 &scale);
-__host__ __device__ inline Matrix4x4 rotate(Real angle, const Vector3 &axis);
-__host__ __device__ inline Matrix4x4 look_at(const Vector3 &pos, const Vector3 &look, const Vector3 &up);
-__host__ __device__ inline Matrix4x4 perspective(Real fov);
-/// Actually transform the vectors given a transformation.
-__host__ __device__ inline Vector3 xform_point(const Matrix4x4 &xform, const Vector3 &pt);
-__host__ __device__ inline Vector3 xform_vector(const Matrix4x4 &xform, const Vector3 &vec);
-__host__ __device__ inline Vector3 xform_normal(const Matrix4x4 &inv_xform, const Vector3 &n);
-
+/// Much of the code is taken from pbrt https://github.com/mmp/pbrt-v3/tree/master/src
 
 __host__ __device__ inline Matrix4x4 translate(const Vector3 &delta) {
     return Matrix4x4(Real(1), Real(0), Real(0), delta[0],

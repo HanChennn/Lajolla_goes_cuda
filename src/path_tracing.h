@@ -1,30 +1,29 @@
 #pragma once
 
-#include "scene.h"
 #include "intersection.h"
+#include "scene.h"
 #include "pcg.h"
 
 /// Unidirectional path tracing
-__device__ inline Spectrum path_tracing(const cudaScene *scene,
-                      int x, int y, /* pixel coordinates */
-                      pcg32_state &rng) {
-    int w = scene->camera.width, h = scene->camera.height;
+__device__ inline Spectrum path_tracing(const Scene &scene,
+                                        int x, int y, /* pixel coordinates */
+                                        pcg32_state &rng) {
+    int w = scene.camera.width, h = scene.camera.height;
     Vector2 screen_pos((x + next_pcg32_real<Real>(rng)) / w,
                        (y + next_pcg32_real<Real>(rng)) / h);
-    Ray ray = sample_primary(scene->camera, screen_pos);
+    Ray ray = sample_primary(scene.camera, screen_pos);
     RayDifferential ray_diff = init_ray_differential(w, h);
 
-    // std::optional<PathVertex> vertex_ = intersect(scene, ray, ray_diff);
-    std::optional<PathVertex> vertex_ = intersect(scene->bvh, scene->shapes, ray, ray_diff);
+    std::optional<PathVertex> vertex_ = intersect(scene.shapes, ray, ray_diff);
     if (!vertex_) {
         // Hit background. Account for the environment map if needed.
-        if (has_envmap(*scene)) {
-            const Light &envmap = get_envmap(*scene);
+        if (has_envmap(scene)) {
+            const Light &envmap = get_envmap(scene);
             return emission(envmap,
                             -ray.dir, // pointing outwards from light
                             ray_diff.spread,
                             PointAndNormal{}, // dummy parameter for envmap
-                            scene->texture_pool);
+                            scene.texture_pool);
         }
         return make_zero_spectrum();
     }
@@ -57,14 +56,14 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
     // We hit a light immediately. 
     // This path has only two vertices and has contribution
     // C = W(v0, v1) * G(v0, v1) * L(v0, v1)
-    if (is_light(scene->shapes[vertex.shape_id])) {
+    if (is_light(scene.shapes[vertex.shape_id])) {
         radiance += current_path_throughput *
-            emission(vertex, -ray.dir, scene->shapes, scene->lights, scene->texture_pool);
+            emission(vertex, -ray.dir, scene.shapes, scene.lights, scene.texture_pool);
     }
 
     // We iteratively sum up path contributions from paths with different number of vertices
     // If max_depth == -1, we rely on Russian roulette for path termination.
-    int max_depth = scene->options.max_depth;
+    int max_depth = scene.options.max_depth;
     for (int num_vertices = 3; max_depth == -1 || num_vertices <= max_depth + 1; num_vertices++) {
         // We are at v_i, and all the path contribution on and before has been accounted for.
         // Now we need to somehow generate v_{i+1} to account for paths with more vertices.
@@ -93,17 +92,17 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
         // our hemisphere sampling.
 
         // Let's implement this!
-        const Material &mat = scene->materials[vertex.material_id];
+        const Material &mat = scene.materials[vertex.material_id];
 
         // First, we sample a point on the light source.
         // We do this by first picking a light source, then pick a point on it.
         Vector2 light_uv{next_pcg32_real<Real>(rng), next_pcg32_real<Real>(rng)};
         Real light_w = next_pcg32_real<Real>(rng);
         Real shape_w = next_pcg32_real<Real>(rng);
-        int light_id = sample_light(*scene, light_w);
-        const Light &light = scene->lights[light_id];
+        int light_id = sample_light(scene, light_w);
+        const Light &light = scene.lights[light_id];
         PointAndNormal point_on_light =
-            sample_point_on_light(light, vertex.position, light_uv, shape_w, scene->shapes);
+            sample_point_on_light(light, vertex.position, light_uv, shape_w, scene.shapes);
 
         // Next, we compute w1*C1/p1. We store C1/p1 in C1.
         Spectrum C1 = make_zero_spectrum();
@@ -124,10 +123,10 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
                 // to a small "epsilon". We set the epsilon to be a small constant times the
                 // scale of the scene, which we can obtain through the get_shadow_epsilon() function.
                 Ray shadow_ray{vertex.position, dir_light, 
-                               get_shadow_epsilon(*scene),
-                               (1 - get_shadow_epsilon(*scene)) *
+                               get_shadow_epsilon(scene),
+                               (1 - get_shadow_epsilon(scene)) *
                                    distance(point_on_light.position, vertex.position)};
-                if (!occluded(scene->bvh, scene->shapes, shadow_ray)) {
+                if (!occluded(scene.shapes, shadow_ray)) {
                     // geometry term is cosine at v_{i+1} divided by distance squared
                     // this can be derived by the infinitesimal area of a surface projected on
                     // a unit sphere -- it's the Jacobian between the area measure and the solid angle
@@ -143,9 +142,9 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
                 // To avoid self intersection, we need to set the tnear of the ray
                 // to a small "epsilon" which we define as c_shadow_epsilon as a global constant.
                 Ray shadow_ray{vertex.position, dir_light, 
-                               get_shadow_epsilon(*scene),
+                               get_shadow_epsilon(scene),
                                infinity<Real>() /* envmaps are infinitely far away */};
-                if (!occluded(scene->bvh, scene->shapes, shadow_ray)) {
+                if (!occluded(scene.shapes, shadow_ray)) {
                     // We integrate envmaps using the solid angle measure,
                     // so the geometry term is 1.
                     G = 1;
@@ -155,8 +154,8 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
             // Before we proceed, we first compute the probability density p1(v1)
             // The probability density for light sampling to sample our point is
             // just the probability of sampling a light times the probability of sampling a point
-            Real p1 = light_pmf(*scene, light_id) *
-                pdf_point_on_light(light, point_on_light, vertex.position, scene->shapes);
+            Real p1 = light_pmf(scene, light_id) *
+                pdf_point_on_light(light, point_on_light, vertex.position, scene.shapes);
 
             // We don't need to continue the computation if G is 0.
             // Also sometimes there can be some numerical issue such that we generate
@@ -165,7 +164,7 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
                 // Let's compute f (BSDF) next.
                 Vector3 dir_view = -ray.dir;
                 assert(vertex.material_id >= 0);
-                Spectrum f = eval(mat, dir_view, dir_light, vertex, scene->texture_pool);
+                Spectrum f = eval(mat, dir_view, dir_light, vertex, scene.texture_pool);
 
                 // Evaluate the emission
                 // We set the footprint to zero since it is not fully clear how
@@ -173,7 +172,7 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
                 // One way is to use a roughness based heuristics, but we have multi-layered BRDFs.
                 // See "Real-time Shading with Filtered Importance Sampling" from Colbert et al.
                 // for the roughness based heuristics.
-                Spectrum L = emission(light, -dir_light, Real(0), point_on_light, scene->texture_pool);
+                Spectrum L = emission(light, -dir_light, Real(0), point_on_light, scene.texture_pool);
 
                 // C1 is just a product of all of them!
                 C1 = G * f * L;
@@ -187,7 +186,7 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
 
                 // The probability density for our hemispherical sampling to sample 
                 Real p2 = pdf_sample_bsdf(
-                    mat, dir_view, dir_light, vertex, scene->texture_pool);
+                    mat, dir_view, dir_light, vertex, scene.texture_pool);
                 // !!!! IMPORTANT !!!!
                 // In general, p1 and p2 now live in different spaces!!
                 // our BSDF API outputs a probability density in the solid angle measure
@@ -216,13 +215,14 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
             sample_bsdf(mat,
                         dir_view,
                         vertex,
-                        scene->texture_pool,
+                        scene.texture_pool,
                         bsdf_rnd_param_uv,
                         bsdf_rnd_param_w);
         if (!bsdf_sample_) {
             // BSDF sampling failed. Abort the loop.
             break;
         }
+
         const BSDFSampleRecord &bsdf_sample = *bsdf_sample_;
         Vector3 dir_bsdf = bsdf_sample.dir_out;
         // Update ray differentials & eta_scale
@@ -235,9 +235,8 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
 
         // Trace a ray towards bsdf_dir. Note that again we have
         // to have an "epsilon" tnear to prevent self intersection.
-        Ray bsdf_ray{vertex.position, dir_bsdf, get_intersection_epsilon(*scene), infinity<Real>()};
-        // std::optional<PathVertex> bsdf_vertex = intersect(scene, bsdf_ray);
-        std::optional<PathVertex> bsdf_vertex = intersect(scene->bvh, scene->shapes, bsdf_ray);
+        Ray bsdf_ray{vertex.position, dir_bsdf, get_intersection_epsilon(scene), infinity<Real>()};
+        std::optional<PathVertex> bsdf_vertex = intersect(scene.shapes, bsdf_ray);
 
         // To update current_path_throughput
         // we need to multiply G(v_{i}, v_{i+1}) * f(v_{i-1}, v_{i}, v_{i+1}) to it
@@ -251,8 +250,8 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
             G = 1;
         }
 
-        Spectrum f = eval(mat, dir_view, dir_bsdf, vertex, scene->texture_pool);
-        Real p2 = pdf_sample_bsdf(mat, dir_view, dir_bsdf, vertex, scene->texture_pool);
+        Spectrum f = eval(mat, dir_view, dir_bsdf, vertex, scene.texture_pool);
+        Real p2 = pdf_sample_bsdf(mat, dir_view, dir_bsdf, vertex, scene.texture_pool);
         if (p2 <= 0) {
             // Numerical issue -- we generated some invalid rays.
             break;
@@ -268,36 +267,36 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
         // There are two possibilities: either we hit an emissive surface,
         // or we hit an environment map.
         // We will handle them separately.
-        if (bsdf_vertex && is_light(scene->shapes[bsdf_vertex->shape_id])) {
+        if (bsdf_vertex && is_light(scene.shapes[bsdf_vertex->shape_id])) {
             // G & f are already computed.
-            Spectrum L = emission(*bsdf_vertex, -dir_bsdf, scene->shapes, scene->lights, scene->texture_pool);
+            Spectrum L = emission(*bsdf_vertex, -dir_bsdf, scene.shapes, scene.lights, scene.texture_pool);
             Spectrum C2 = G * f * L;
             // Next let's compute p1(v2): the probability of the light source sampling
             // directly drawing the point corresponds to bsdf_dir.
-            int light_id = get_area_light_id(scene->shapes[bsdf_vertex->shape_id]);
+            int light_id = get_area_light_id(scene.shapes[bsdf_vertex->shape_id]);
             assert(light_id >= 0);
-            const Light &light = scene->lights[light_id];
+            const Light &light = scene.lights[light_id];
             PointAndNormal light_point{bsdf_vertex->position, bsdf_vertex->geometric_normal};
-            Real p1 = light_pmf(*scene, light_id) *
-                pdf_point_on_light(light, light_point, vertex.position, scene->shapes);
+            Real p1 = light_pmf(scene, light_id) *
+                pdf_point_on_light(light, light_point, vertex.position, scene.shapes);
             Real w2 = (p2*p2) / (p1*p1 + p2*p2);
 
             C2 /= p2;
             radiance += current_path_throughput * C2 * w2;
-        } else if (!bsdf_vertex && has_envmap(*scene)) {
+        } else if (!bsdf_vertex && has_envmap(scene)) {
             // G & f are already computed.
-            const Light &light = get_envmap(*scene);
+            const Light &light = get_envmap(scene);
             Spectrum L = emission(light,
                                   -dir_bsdf, // pointing outwards from light
                                   ray_diff.spread,
                                   PointAndNormal{}, // dummy parameter for envmap
-                                  scene->texture_pool);
+                                  scene.texture_pool);
             Spectrum C2 = G * f * L;
             // Next let's compute p1(v2): the probability of the light source sampling
             // directly drawing the direction bsdf_dir.
             PointAndNormal light_point{Vector3{0, 0, 0}, -dir_bsdf}; // pointing outwards from light
-            Real p1 = light_pmf(*scene, scene->envmap_light_id) *
-                      pdf_point_on_light(light, light_point, vertex.position, scene->shapes);
+            Real p1 = light_pmf(scene, scene.envmap_light_id) *
+                      pdf_point_on_light(light, light_point, vertex.position, scene.shapes);
             Real w2 = (p2*p2) / (p1*p1 + p2*p2);
 
             C2 /= p2;
@@ -312,7 +311,7 @@ __device__ inline Spectrum path_tracing(const cudaScene *scene,
         // Update rays/intersection/current_path_throughput/current_pdf
         // Russian roulette heuristics
         Real rr_prob = 1;
-        if (num_vertices - 1 >= scene->options.rr_depth) {
+        if (num_vertices - 1 >= scene.options.rr_depth) {
             rr_prob = min(max((1 / eta_scale) * current_path_throughput), Real(0.95));
             if (next_pcg32_real<Real>(rng) > rr_prob) {
                 // Terminate the path

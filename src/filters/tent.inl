@@ -1,4 +1,4 @@
-__host__ __device__ inline Vector2 sample_op::operator()(const Tent &filter) const {
+__device__ inline Vector2 sample_op::operator()(const Tent &filter) const {
     // Tent filter can be sampled through two parts:
     // the positive part is     k(x) = (1 - x / half_width) / normalization
     // and the negative part is k(x) = (1 + x / half_width) / normalization

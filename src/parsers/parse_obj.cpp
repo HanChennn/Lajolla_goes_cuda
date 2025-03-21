@@ -8,6 +8,10 @@
 #include <regex>
 #include <string>
 
+#include "parsed_shape.h"
+
+namespace parser{
+
 // https://stackoverflow.com/questions/216823/how-to-trim-a-stdstring
 // trim from start
 static inline std::string& ltrim(std::string &s) {
@@ -88,12 +92,12 @@ size_t get_vertex_id(const ObjVertex &vertex,
     return id;
 }
 
-ParsedTriangleMesh parse_obj(const fs::path &filename, const Matrix4x4 &to_world) {
+TriangleMesh parse_obj(const fs::path &filename, const Matrix4x4 &to_world) {
     std::vector<Vector3> pos_pool;
     std::vector<Vector3> nor_pool;
     std::vector<Vector2> st_pool;
     std::map<ObjVertex, size_t> vertex_map;
-    ParsedTriangleMesh mesh;
+    TriangleMesh mesh;
 
     std::ifstream ifs(filename.c_str(), std::ifstream::in);
     if (!ifs.is_open()) {
@@ -182,4 +186,6 @@ ParsedTriangleMesh parse_obj(const fs::path &filename, const Matrix4x4 &to_world
     }
 
     return mesh;
+}
+
 }

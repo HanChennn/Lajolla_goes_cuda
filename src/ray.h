@@ -3,8 +3,6 @@
 #include "lajolla.h"
 #include "vector.h"
 
-struct PathVertex;
-
 /// Your typical Ray data structure!
 struct Ray {
     Vector3 org, dir;
@@ -32,17 +30,17 @@ struct RayDifferential {
 };
 
 /// These functions propagate the ray differential information.
-__host__ __device__ inline RayDifferential init_ray_differential(int w, int h) {
+__device__ inline RayDifferential init_ray_differential(int w, int h) {
     return RayDifferential{Real(0), Real(0.25) / max(w, h)};
 }
 
 /// Update the radius (dp/dx) of a ray differential by propagating it over a distance.
-__host__ __device__ inline Real transfer(const RayDifferential &r, Real dist) {
+__device__ inline Real transfer(const RayDifferential &r, Real dist) {
     return r.radius + r.spread * dist;
 }
 
 /// Update the spread (dd/dx) of a ray differential by scattering over a reflective surface.
-__host__ __device__ inline Real reflect(const RayDifferential &r,
+__device__ inline Real reflect(const RayDifferential &r,
                     Real mean_curvature,
                     Real roughness) {
     Real spec_spread = r.spread + 2 * mean_curvature * r.radius;
@@ -56,7 +54,7 @@ __host__ __device__ inline Real reflect(const RayDifferential &r,
 /// We simply guess a formula here: when eta == 1, the spread & radius should not change.
 /// High eta makes ray more concentrated and reduces the spread, and vice versa.
 /// so we simply divide everything by eta.
-__host__ __device__ inline Real refract(const RayDifferential &r,
+__device__ inline Real refract(const RayDifferential &r,
                     Real mean_curvature,
                     Real eta,
                     Real roughness) {

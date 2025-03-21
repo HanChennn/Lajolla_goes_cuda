@@ -1,6 +1,6 @@
 #include "../microfacet.h"
 
-__host__ __device__ Spectrum eval_op::operator()(const RoughDielectric &bsdf) const {
+__device__ inline Spectrum eval_op::operator()(const RoughDielectric &bsdf) const {
     bool reflect = dot(vertex.geometric_normal, dir_in) *
                    dot(vertex.geometric_normal, dir_out) > 0;
     // Flip the shading frame if it is inconsistent with the geometry normal
@@ -71,7 +71,7 @@ __host__ __device__ Spectrum eval_op::operator()(const RoughDielectric &bsdf) co
     }
 }
 
-__host__ __device__ Real pdf_sample_bsdf_op::operator()(const RoughDielectric &bsdf) const {
+__device__ inline Real pdf_sample_bsdf_op::operator()(const RoughDielectric &bsdf) const {
     bool reflect = dot(vertex.geometric_normal, dir_in) *
                    dot(vertex.geometric_normal, dir_out) > 0;
     // Flip the shading frame if it is inconsistent with the geometry normal
@@ -120,7 +120,7 @@ __host__ __device__ Real pdf_sample_bsdf_op::operator()(const RoughDielectric &b
     }
 }
 
-__host__ __device__ std::optional<BSDFSampleRecord>
+__device__ inline std::optional<BSDFSampleRecord>
         sample_bsdf_op::operator()(const RoughDielectric &bsdf) const {
     // If we are going into the surface, then we use normal eta
     // (internal/external), otherwise we use external/internal.
@@ -176,6 +176,6 @@ __host__ __device__ std::optional<BSDFSampleRecord>
     }
 }
 
-__host__ __device__ TextureSpectrum get_texture_op::operator()(const RoughDielectric &bsdf) const {
+__device__ inline TextureSpectrum get_texture_op::operator()(const RoughDielectric &bsdf) const {
     return bsdf.specular_reflectance;
 }

@@ -44,13 +44,10 @@ struct Gaussian {
 
 using Filter = std::variant<Box, Tent, Gaussian>;
 
-// __host__ __device__ Vector2 sample_filter(const Filter &filter, const Vector2 &rnd_param);
-
-
 struct sample_op {
-    __host__ __device__ inline Vector2 operator()(const Box &filter) const;
-    __host__ __device__ inline Vector2 operator()(const Tent &filter) const; 
-    __host__ __device__ inline Vector2 operator()(const Gaussian &filter) const;
+    __device__ inline Vector2 operator()(const Box &filter) const;
+    __device__ inline Vector2 operator()(const Tent &filter) const;
+    __device__ inline Vector2 operator()(const Gaussian &filter) const;
 
     const Vector2 &rnd_param;
 };
@@ -60,14 +57,6 @@ struct sample_op {
 #include "filters/tent.inl"
 #include "filters/gaussian.inl"
 
-__host__ __device__ inline Vector2 sample_filter(const Filter &filter, const Vector2 &rnd_param) {
-    // return std::visit(sample_op{rnd_param}, filter);
-    if (auto *m = std::get_if<Box>(&filter))
-        return sample_op{rnd_param}(*m);
-    else if (auto *m = std::get_if<Tent>(&filter))
-        return sample_op{rnd_param}(*m);
-    else if (auto *m = std::get_if<Gaussian>(&filter))
-        return sample_op{rnd_param}(*m);
-    else
-        return Vector2(0.0f, 0.0f);
+__device__ inline Vector2 sample(const Filter &filter, const Vector2 &rnd_param) {
+    return std::visit(sample_op{rnd_param}, filter);
 }

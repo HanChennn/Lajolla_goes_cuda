@@ -4,22 +4,21 @@
 #include <math.h>
 #include <cmath>
 
-
 template <typename T>
 struct TVector2 {
-    __host__ __device__ TVector2() {}
+    TVector2() = default;
 
     template <typename T2>
-    __host__ __device__ TVector2(T2 x, T2 y) : x(T(x)), y(T(y)) {}
+    __host__ __device__ inline TVector2(T2 x, T2 y) : x(T(x)), y(T(y)) {}
 
     template <typename T2>
-    __host__ __device__ TVector2(const TVector2<T2> &v) : x(T(v.x)), y(T(v.y)) {}
+    __host__ __device__ inline TVector2(const TVector2<T2> &v) : x(T(v.x)), y(T(v.y)) {}
 
-    __host__ __device__ T& operator[](int i) {
+    __host__ __device__ inline T& operator[](int i) {
         return *(&x + i);
     }
 
-    __host__ __device__ T operator[](int i) const {
+    __host__ __device__ inline T operator[](int i) const {
         return *(&x + i);
     }
 
@@ -28,19 +27,19 @@ struct TVector2 {
 
 template <typename T>
 struct TVector3 {
-    __host__ __device__ TVector3() {}
+    TVector3() = default;
 
     template <typename T2>
-    __host__ __device__ TVector3(T2 x, T2 y, T2 z) : x(T(x)), y(T(y)), z(T(z)) {}
+    __host__ __device__ inline TVector3(T2 x, T2 y, T2 z) : x(T(x)), y(T(y)), z(T(z)) {}
 
     template <typename T2>
-    __host__ __device__ TVector3(const TVector3<T2> &v) : x(T(v.x)), y(T(v.y)), z(T(v.z)) {}
+    __host__ __device__ inline TVector3(const TVector3<T2> &v) : x(T(v.x)), y(T(v.y)), z(T(v.z)) {}
 
-    __host__ __device__ T& operator[](int i) {
+    __host__ __device__ inline T& operator[](int i) {
         return *(&x + i);
     }
 
-    __host__ __device__ T operator[](int i) const {
+    __host__ __device__ inline T operator[](int i) const {
         return *(&x + i);
     }
 
@@ -49,20 +48,20 @@ struct TVector3 {
 
 template <typename T>
 struct TVector4 {
-    __host__ __device__ TVector4() {}
+    TVector4() = default;
 
     template <typename T2>
-    __host__ __device__ TVector4(T2 x, T2 y, T2 z, T2 w) : x(T(x)), y(T(y)), z(T(z)), w(T(w)) {}
+    __host__ __device__ inline TVector4(T2 x, T2 y, T2 z, T2 w) : x(T(x)), y(T(y)), z(T(z)), w(T(w)) {}
 
     template <typename T2>
-    __host__ __device__ TVector4(const TVector4<T2> &v) : x(T(v.x)), y(T(v.y)), z(T(v.z)), w(T(v.w)) {}
+    __host__ __device__ inline TVector4(const TVector4<T2> &v) : x(T(v.x)), y(T(v.y)), z(T(v.z)), w(T(v.w)) {}
 
 
-    __host__ __device__ T& operator[](int i) {
+    __host__ __device__ inline T& operator[](int i) {
         return *(&x + i);
     }
 
-    __host__ __device__ T operator[](int i) const {
+    __host__ __device__ inline T operator[](int i) const {
         return *(&x + i);
     }
 
@@ -192,12 +191,6 @@ __host__ __device__ inline TVector3<T>& operator*=(TVector3<T> &v0, const TVecto
 }
 
 template <typename T>
-__host__ __device__ inline TVector4<T> operator/(const TVector4<T> &v, const T &s) {
-    T inv_s = T(1) / s;
-    return TVector4<T>(v[0] * inv_s, v[1] * inv_s, v[2] * inv_s, v[3] * inv_s);
-}
-
-template <typename T>
 __host__ __device__ inline TVector3<T> operator/(const TVector3<T> &v, const T &s) {
     T inv_s = T(1) / s;
     return TVector3<T>(v[0] * inv_s, v[1] * inv_s, v[2] * inv_s);
@@ -254,47 +247,6 @@ __host__ __device__ inline T length(const TVector3<T> &v) {
 }
 
 template <typename T>
-__host__ __device__ inline T length(const TVector4<T> &v) {
-    return sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2] + v[3]*v[3]);
-}
-
-
-template <typename T>
-__host__ __device__ inline TVector4<T> max(const TVector4<T> &v0, const TVector4<T> &v1) {
-    return TVector4<T>(max(v0.x, v1.x), max(v0.y, v1.y), max(v0.z, v1.z), max(v0.w, v1.w));
-}
-// template <typename T>
-// __host__ __device__ inline TVector3<T> max(const TVector3<T> &v0, const TVector3<T> &v1) {
-//     return TVector3<T>(max(v0.x, v1.x), max(v0.y, v1.y), max(v0.z, v1.x));
-// }
-template <typename T>
-__host__ __device__ inline TVector2<T> max(const TVector2<T> &v0, const TVector2<T> &v1) {
-    return TVector2<T>(max(v0.x, v1.x), max(v0.y, v1.y));
-}
-template <typename T>
-__host__ __device__ inline TVector4<T> min(const TVector4<T> &v0, const TVector4<T> &v1) {
-    return TVector4<T>(min(v0.x, v1.x), min(v0.y, v1.y), min(v0.z, v1.z), min(v0.w, v1.w));
-}
-template <typename T>
-__host__ __device__ inline TVector3<T> min(const TVector3<T> &v0, const TVector3<T> &v1) {
-    return TVector3<T>(min(v0.x, v1.x), min(v0.y, v1.y), min(v0.z, v1.x));
-}
-template <typename T>
-__host__ __device__ inline TVector2<T> min(const TVector2<T> &v0, const TVector2<T> &v1) {
-    return TVector2<T>(min(v0.x, v1.x), min(v0.y, v1.y));
-}
-
-template <typename T>
-__host__ __device__ inline TVector4<T> normalize(const TVector4<T> &v0) {
-    auto l = length(v0);
-    if (l <= 0) {
-        return TVector4<T>{0, 0, 0, 0};
-    } else {
-        return v0 / l;
-    }
-}
-
-template <typename T>
 __host__ __device__ inline TVector3<T> normalize(const TVector3<T> &v0) {
     auto l = length(v0);
     if (l <= 0) {
@@ -340,11 +292,11 @@ __host__ __device__ inline bool isfinite(const TVector3<T> &v) {
 }
 
 template <typename T>
-inline std::ostream& operator<<(std::ostream &os, const TVector2<T> &v) {
+__host__ inline std::ostream& operator<<(std::ostream &os, const TVector2<T> &v) {
     return os << "(" << v[0] << ", " << v[1] << ")";
 }
 
 template <typename T>
-inline std::ostream& operator<<(std::ostream &os, const TVector3<T> &v) {
+__host__ inline std::ostream& operator<<(std::ostream &os, const TVector3<T> &v) {
     return os << "(" << v[0] << ", " << v[1] << ", " << v[2] << ")";
 }
